@@ -1,5 +1,11 @@
 import { defineRule } from '../../core/define-rule.js';
-import { isClientReachable, MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import {
+  isClientReachable,
+  isDeployableApp,
+  isNonProductionFile,
+  requiresModelSdk,
+  MAX_FINDINGS_PER_RULE,
+} from '../helpers.js';
 
 const BROWSER_ESCAPE_HATCH = /dangerouslyAllowBrowser\s*:\s*true/g;
 const PUBLIC_MODEL_KEY =
@@ -24,15 +30,28 @@ export default defineRule({
     tags: ['cost', 'secrets', 'llm'],
   },
 
+  appliesTo: requiresModelSdk,
+
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     let reported = 0;
 
+    // A library that wraps a provider SDK legitimately passes this option
+    // through for callers who proxy the request themselves. In an application
+    // it puts a key in the bundle; in a library it is an API surface, so it is
+    // still reported but does not force a NOT READY verdict.
+    const isApplication = isDeployableApp(ctx.index);
     for (const match of file.matches(BROWSER_ESCAPE_HATCH)) {
       if (reported >= MAX_FINDINGS_PER_RULE) return;
       reported++;
       ctx.report({
         title: 'SDK client constructed with dangerouslyAllowBrowser: true',
-        explanation: `${file.path} disables the SDK guard that prevents it from running in a browser. That guard exists because doing so puts your provider API key in code the user can read.`,
+        severity: isApplication ? 'critical' : 'high',
+        confidence: isApplication ? 'high' : 'low',
+        blocker: isApplication,
+        explanation: isApplication
+          ? `${file.path} disables the SDK guard that prevents it from running in a browser. That guard exists because doing so puts your provider API key in code the user can read.`
+          : `${file.path} sets dangerouslyAllowBrowser. In a library this may be a deliberate pass-through for callers who proxy the request, but any application reaching this path with a real key exposes it to the browser.`,
         evidence: [file.evidenceAt(match.index, { length: match.text.length })],
       });
     }

@@ -61,14 +61,14 @@ This page is generated from rule metadata by `npm run docs:rules`. Do not edit i
 | [`reliability/process-exit-in-request-path`](./reliability__process-exit-in-request-path.md) | `high` | `high` | process.exit() inside a request handler |
 | [`reliability/retry-without-backoff`](./reliability__retry-without-backoff.md) | `medium` | `low` | Retry loop with no delay between attempts |
 | [`reliability/swallowed-error`](./reliability__swallowed-error.md) | `medium` | `high` | Error caught and discarded |
-| [`reliability/unhandled-promise`](./reliability__unhandled-promise.md) | `medium` | `medium` | Promise chain with no rejection handler |
+| [`reliability/unhandled-promise`](./reliability__unhandled-promise.md) | `medium` | `low` | Promise chain with no rejection handler |
 
 ## Testing
 
 | Rule | Severity | Confidence | Description |
 | --- | --- | --- | --- |
 | [`testing/ci-missing-checks`](./testing__ci-missing-checks.md) | `medium` | `medium` | CI pipeline is missing a core check |
-| [`testing/focused-or-skipped-test`](./testing__focused-or-skipped-test.md) | `high` | `high` | Focused or skipped test committed |
+| [`testing/focused-test`](./testing__focused-test.md) | `high` | `high` | Focused test committed |
 | [`testing/no-test-infrastructure`](./testing__no-test-infrastructure.md) | `high` | `high` | Project has no tests |
 | [`testing/untested-server-code`](./testing__untested-server-code.md) | `medium` | `low` | Server-side code has no visible test coverage |
 

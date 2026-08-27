@@ -1,11 +1,14 @@
 import { defineRule } from '../../core/define-rule.js';
-import { MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { isNonProductionFile, MAX_FINDINGS_PER_RULE } from '../helpers.js';
 
 const DANGEROUS_HTML = /dangerouslySetInnerHTML\s*=\s*\{\{/g;
 const INNER_HTML_ASSIGN = /\.\s*innerHTML\s*=/g;
 const OUTER_HTML_ASSIGN = /\.\s*outerHTML\s*=/g;
 const DOCUMENT_WRITE = /document\s*\.\s*write(?:ln)?\s*\(/g;
 const SANITIZER = /\b(?:DOMPurify|sanitize\w*|sanitizeHtml|xss\(|purify|createDOMPurify)/i;
+
+/** `__html` assigned a plain string literal, with nothing interpolated in. */
+const STATIC_HTML_LITERAL = /__html\s*:\s*(?:'[^'\n]*'|"[^"\n]*"|`[^`$]*`)\s*[,}]/;
 
 export default defineRule({
   meta: {
@@ -26,7 +29,7 @@ export default defineRule({
   },
 
   checkFile(file, ctx) {
-    if (file.role === 'test') return;
+    if (isNonProductionFile(file)) return;
     let reported = 0;
 
     const emit = (index: number, length: number, what: string, remediation: string): void => {
@@ -46,6 +49,9 @@ export default defineRule({
     };
 
     for (const m of file.matches(DANGEROUS_HTML)) {
+      // `__html: '<p>static</p>'` is a constant in the source. There is no
+      // input to inject, so there is nothing to sanitise.
+      if (STATIC_HTML_LITERAL.test(file.content.slice(m.index, m.index + 400))) continue;
       emit(
         m.index,
         m.text.length,

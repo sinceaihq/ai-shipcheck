@@ -1,4 +1,5 @@
 import { defineRule } from '../../core/define-rule.js';
+import { projectEvidence } from '../helpers.js';
 
 const TEST_RUNNERS = [
   'vitest',
@@ -62,13 +63,10 @@ export default defineRule({
         remediation:
           'Write the first tests for the highest-risk paths, or remove the test script so the gap is visible.',
         evidence: [
-          {
-            file: 'package.json',
-            line: 1,
-            column: 1,
-            snippet: '"scripts": { "test": ... }',
-            note: 'Test runner configured, zero test files found',
-          },
+          projectEvidence(ctx.index, 'package.json', {
+            anchor: /"scripts"/,
+            note: 'a test script is declared but no test files exist',
+          }),
         ],
       });
       return;
@@ -77,13 +75,10 @@ export default defineRule({
     ctx.report({
       explanation: `No test files and no test runner were found across ${ctx.index.files.length} scanned files. Nothing in this repository verifies that it works.`,
       evidence: [
-        {
-          file: 'package.json',
-          line: 1,
-          column: 1,
-          snippet: ctx.index.profile.name ?? 'project',
-          note: 'No test runner in dependencies, no test files in the tree',
-        },
+        projectEvidence(ctx.index, 'package.json', {
+          anchor: /"(?:scripts|devDependencies)"/,
+          note: 'no test runner declared and no test files in the tree',
+        }),
       ],
     });
   },

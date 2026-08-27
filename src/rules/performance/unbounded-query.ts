@@ -1,5 +1,5 @@
 import { defineRule } from '../../core/define-rule.js';
-import { callArgumentObject, MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { callArgumentObject, isNonProductionFile, MAX_FINDINGS_PER_RULE } from '../helpers.js';
 import type { SourceFile } from '../../analysis/source-file.js';
 
 const PRISMA_FIND_MANY = /\.\s*findMany\s*\(\s*(\)|\{)/g;
@@ -8,8 +8,13 @@ const MONGO_FIND = /\.\s*find\s*\(\s*(?:\{\s*\}\s*)?\)/g;
 const SQL_SELECT_ALL = /\bselect\s+\*\s+from\s+[\w".]+\s*(?:;|$)/gi;
 
 /** Constructs that bound the number of rows returned. */
+/**
+ * A `where` clause counts as a bound. `findMany({ where: { id: { in: ids } } })`
+ * is a targeted lookup, not a table scan, and treating it as unbounded made
+ * this rule fire on the most common query shape in every application.
+ */
 const BOUND =
-  /\b(?:take|limit|first|top|range|maxResults|pageSize|cursor|skip|offset|paginate|count)\b/;
+  /\b(?:take|limit|first|top|range|maxResults|pageSize|cursor|skip|offset|paginate|count|where|filter)\b/;
 
 export default defineRule({
   meta: {
@@ -42,7 +47,7 @@ export default defineRule({
   },
 
   checkFile(file, ctx) {
-    if (file.role === 'test') return;
+    if (isNonProductionFile(file)) return;
     let reported = 0;
 
     const emit = (index: number, length: number, title: string, detail: string): void => {

@@ -1,5 +1,5 @@
 import { defineRule } from '../../core/define-rule.js';
-import { routeHandlers } from '../helpers.js';
+import { isNonProductionFile, routeHandlers } from '../helpers.js';
 import { toRoutePath } from '../security/exposed-debug-route.js';
 
 const WEBHOOK_PATH = /(?:^|\/)(?:webhooks?|hooks?)(?:\/|$)/;
@@ -39,6 +39,7 @@ export default defineRule({
   },
 
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     if (file.role !== 'next-app-route' && file.role !== 'next-pages-api') return;
     const routePath = toRoutePath(file.path);
     if (!WEBHOOK_PATH.test(routePath)) return;

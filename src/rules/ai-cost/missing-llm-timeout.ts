@@ -1,5 +1,5 @@
 import { defineRule } from '../../core/define-rule.js';
-import { findLlmCalls, MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { findLlmCalls, MAX_FINDINGS_PER_RULE, isNonProductionFile } from '../helpers.js';
 
 const TIMEOUT_SIGNAL =
   /(?:timeout\s*:|maxRetries\s*:|signal\s*:|AbortSignal\.timeout|AbortController|withTimeout|requestTimeout|httpAgent)/;
@@ -31,7 +31,7 @@ export default defineRule({
   },
 
   checkFile(file, ctx) {
-    if (file.role === 'test') return;
+    if (isNonProductionFile(file)) return;
     if (!file.isServer) return;
     if (TIMEOUT_SIGNAL.test(file.code)) return;
 

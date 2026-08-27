@@ -3,6 +3,7 @@ import {
   hasAuthSignal,
   hasLlmCall,
   hasRateLimitSignal,
+  isNonProductionFile,
   projectHasRateLimiter,
   routeHandlers,
 } from '../helpers.js';
@@ -40,6 +41,7 @@ export default defineRule({
   },
 
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     if (file.role !== 'next-app-route' && file.role !== 'next-pages-api') return;
     if (!hasLlmCall(file.code)) return;
 

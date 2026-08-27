@@ -7,6 +7,19 @@
  * LEVEL SECURITY` cannot be mistaken for the real thing.
  */
 
+/**
+ * True when a SQL file belongs to a Supabase project.
+ *
+ * Row-level security is a Supabase/PostgREST concern: the anon key is public
+ * by design, so RLS is the only thing standing between it and the data. A
+ * Prisma migration in a repository that happens to also ship a Supabase
+ * adapter is not that, and demanding RLS of it is wrong. The Supabase CLI
+ * convention - `supabase/migrations/` - is the signal.
+ */
+export function isSupabaseSql(filePath: string): boolean {
+  return /(?:^|\/)supabase\//i.test(filePath);
+}
+
 /** Remove `--` and block comments from SQL, preserving offsets. */
 export function stripSqlComments(sql: string): string {
   const out: string[] = new Array<string>(sql.length);

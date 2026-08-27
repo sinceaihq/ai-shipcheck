@@ -5,7 +5,16 @@ import { isNonProductionFile, MAX_FINDINGS_PER_RULE } from '../helpers.js';
 const PRISMA_MUTATION = /\.\s*(deleteMany|updateMany)\s*\(\s*(\)|\{)/g;
 const SUPABASE_MUTATION = /\.\s*from\s*\(\s*['"][\w.]+['"]\s*\)\s*\.\s*(delete|update)\s*\(/g;
 const MONGO_MUTATION = /\.\s*(deleteMany|updateMany|remove)\s*\(\s*\{\s*\}\s*\)/g;
-const SQL_UNFILTERED = /\b(?:delete\s+from|update)\s+[a-z_"][\w".]*\s*(?:set\s+[^;]{0,200})?;/gi;
+/**
+ * A DML statement at a statement boundary.
+ *
+ * The boundary matters: `ON UPDATE CASCADE` inside a foreign-key constraint
+ * contains the word `update` followed by an identifier, and without anchoring
+ * this reported every referential action in every migration as a full-table
+ * write.
+ */
+const SQL_UNFILTERED =
+  /(?:^|;)\s*(?:delete\s+from|update)\s+[a-z_"][\w".]*\s*(?:set\s+[^;]{0,200})?;/gim;
 
 /** Filter constructs that bound a mutation. */
 const FILTER = /\b(?:where|eq|neq|in|match|filter|gt|lt|gte|lte|is|like|ilike|contains|_id)\b/;

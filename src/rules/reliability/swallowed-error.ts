@@ -38,6 +38,11 @@ export default defineRule({
       const original = file.content.slice(open + 1, close);
       if (/\/\/|\/\*/.test(original)) continue;
 
+      // `catch {} finally { cleanup() }` is a deliberate shape: the author
+      // decided the failure is not actionable but the cleanup is. That is a
+      // considered choice, not an oversight.
+      if (/^\s*finally\s*\{/.test(file.code.slice(close + 1, close + 40))) continue;
+
       reported++;
       ctx.report({
         title: 'Empty catch block discards the error',

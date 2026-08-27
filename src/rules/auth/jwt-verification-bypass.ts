@@ -1,5 +1,5 @@
 import { defineRule } from '../../core/define-rule.js';
-import { MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { isNonProductionFile, MAX_FINDINGS_PER_RULE } from '../helpers.js';
 
 const JWT_DECODE = /\bjwt(?:wt)?\s*\.\s*decode\s*\(|\bjwtDecode\s*\(|\bdecodeJwt\s*\(/g;
 const ALGORITHM_NONE = /algorithms?\s*:\s*\[?\s*['"]none['"]/gi;
@@ -7,7 +7,14 @@ const IGNORE_EXPIRATION = /ignoreExpiration\s*:\s*true/g;
 
 /** Evidence that the decoded token is verified somewhere in the same module. */
 const VERIFY_PRESENT =
-  /\bjwt(?:wt)?\s*\.\s*verify\s*\(|\bjwtVerify\s*\(|\bverifyIdToken\s*\(|\bjoseVerify\b/;
+  /\bjwt(?:wt)?\s*\.\s*verify\s*\(|\bjwtVerify\s*\(|\bverifyIdToken\s*\(|\bjoseVerify\b|\bverifySessionCookie\s*\(/;
+
+/**
+ * The decoded payload being used as an identity or authorisation decision, as
+ * opposed to reading an expiry or an issuer, which is ordinary and safe.
+ */
+const TRUSTED_CLAIM_USE =
+  /\.\s*(?:sub|role|roles|isAdmin|is_admin|permissions|scope|scopes|userId|user_id|uid|email|tenantId|org|orgId)\b|\[\s*['"](?:sub|role|roles|permissions|scope|userId|uid|email)['"]\s*\]/;
 
 export default defineRule({
   meta: {
@@ -29,7 +36,7 @@ export default defineRule({
   },
 
   checkFile(file, ctx) {
-    if (file.role === 'test') return;
+    if (isNonProductionFile(file)) return;
     let reported = 0;
 
     for (const match of file.matchesText(ALGORITHM_NONE)) {
@@ -42,14 +49,27 @@ export default defineRule({
       });
     }
 
+    // Decoding a token to read a non-security claim - an expiry, an issuer -
+    // is ordinary and safe. What matters is decoding it and then *trusting*
+    // the result to decide who the caller is. Without that second half the two
+    // cases cannot be told apart, so nothing is reported and this is certainly
+    // not treated as a deployment blocker.
     if (!VERIFY_PRESENT.test(file.text)) {
       for (const match of file.matches(JWT_DECODE)) {
         if (reported >= MAX_FINDINGS_PER_RULE) return;
+        const line = file.lineAt(match.index);
+        const following = [line, line + 1, line + 2, line + 3, line + 4, line + 5]
+          .map((n) => file.lineText(n))
+          .join('\n');
+        if (!TRUSTED_CLAIM_USE.test(following)) continue;
+
         reported++;
         ctx.report({
-          title: 'JWT decoded but never verified',
-          confidence: 'medium',
-          explanation: `${file.path} decodes a JWT without any verification call in the same module. Decoding does not check the signature, so claims such as the user id or role can be set to anything by the caller.`,
+          title: 'JWT decoded without verification, then trusted',
+          severity: 'high',
+          confidence: 'low',
+          blocker: false,
+          explanation: `${file.path} decodes a JWT with no verification call in the same module and then reads an identity or role claim from it. Decoding does not check the signature, so a caller can set those claims to anything.`,
           evidence: [file.evidenceAt(match.index, { length: match.text.length })],
         });
       }

@@ -1,4 +1,5 @@
 import { defineRule } from '../../core/define-rule.js';
+import { projectEvidence } from '../helpers.js';
 
 const ERROR_BOUNDARY =
   /(?:componentDidCatch|getDerivedStateFromError|ErrorBoundary|react-error-boundary|withErrorBoundary)/;
@@ -43,6 +44,9 @@ export default defineRule({
     if (ctx.index.files.some((f) => ERROR_BOUNDARY.test(f.code))) return;
 
     const isAppRouter = ctx.index.hasFramework('next-app-router');
+    const rootLayout = ctx.index
+      .withRole('next-app-special')
+      .find((f) => /^(?:src\/)?app\/layout\.[cm]?[jt]sx?$/.test(f.path));
     ctx.report({
       explanation: isAppRouter
         ? 'This App Router project has no error.tsx or global-error.tsx anywhere, and no error boundary component. An exception thrown while rendering any route replaces the page with a blank screen.'
@@ -50,16 +54,15 @@ export default defineRule({
       remediation: isAppRouter
         ? 'Add app/error.tsx for route-level recovery and app/global-error.tsx as a last resort, and report the error from each one.'
         : 'Wrap the application root in an error boundary - react-error-boundary is a small, well-maintained option - and report caught errors to your monitoring service.',
+      // Cite the root layout when there is one - that is where a global error
+      // boundary belongs - and fall back to the manifest otherwise. Pointing
+      // at a directory produces a location no tool can open.
       evidence: [
-        {
-          file: ctx.index.hasFramework('next') ? 'app' : 'package.json',
-          line: 1,
-          column: 1,
-          snippet: 'No error boundary found',
+        projectEvidence(ctx.index, rootLayout?.path ?? 'package.json', {
           note: isAppRouter
-            ? 'no error.tsx / global-error.tsx in any route segment'
-            : 'no error boundary component',
-        },
+            ? 'no error.tsx or global-error.tsx in any route segment'
+            : 'no error boundary component anywhere in the project',
+        }),
       ],
     });
   },

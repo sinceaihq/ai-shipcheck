@@ -1,5 +1,10 @@
 import { defineRule } from '../../core/define-rule.js';
-import { callArgumentObject, findLlmCalls, MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import {
+  callArgumentObject,
+  findLlmCalls,
+  MAX_FINDINGS_PER_RULE,
+  isNonProductionFile,
+} from '../helpers.js';
 
 /** A `model:` option whose value comes from the request. */
 const MODEL_FROM_REQUEST =
@@ -36,7 +41,7 @@ export default defineRule({
   },
 
   checkFile(file, ctx) {
-    if (file.role === 'test') return;
+    if (isNonProductionFile(file)) return;
     if (VALIDATED.test(file.code)) return;
     let reported = 0;
 

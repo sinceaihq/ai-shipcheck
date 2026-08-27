@@ -1,5 +1,5 @@
 import { defineRule } from '../../core/define-rule.js';
-import { MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { isNonProductionFile, MAX_FINDINGS_PER_RULE } from '../helpers.js';
 
 /** A bounded loop whose body performs a network call. */
 const RETRY_LOOP =
@@ -28,7 +28,7 @@ export default defineRule({
 
   checkFile(file, ctx) {
     if (!file.isServer) return;
-    if (file.role === 'test') return;
+    if (isNonProductionFile(file)) return;
     let reported = 0;
 
     for (const match of file.matches(RETRY_LOOP)) {

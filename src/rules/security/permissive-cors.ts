@@ -1,5 +1,5 @@
 import { defineRule } from '../../core/define-rule.js';
-import { MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { isNonProductionFile, MAX_FINDINGS_PER_RULE } from '../helpers.js';
 
 const WILDCARD_HEADER = /['"]Access-Control-Allow-Origin['"]\s*[,:]\s*['"]\*['"]/g;
 const WILDCARD_HEADER_SET =
@@ -30,21 +30,26 @@ export default defineRule({
   },
 
   checkFile(file, ctx) {
-    if (file.role === 'test') return;
+    if (isNonProductionFile(file)) return;
     let reported = 0;
     const hasCredentials = CREDENTIALS.test(file.text);
 
     const emit = (index: number, length: number, what: string): void => {
       if (reported >= MAX_FINDINGS_PER_RULE) return;
       reported++;
+      // With credentials this is a real hole: any site can read authenticated
+      // responses on a visitor's behalf. Without them, a wildcard is how you
+      // publish a genuinely public endpoint, so it is reported as a
+      // configuration smell to review rather than as a vulnerability.
       ctx.report({
         title: hasCredentials
           ? `${what} combined with credentialed requests`
           : `${what} allows any origin`,
-        severity: hasCredentials ? 'critical' : 'high',
+        severity: hasCredentials ? 'critical' : 'medium',
+        confidence: hasCredentials ? 'high' : 'low',
         explanation: hasCredentials
           ? `${file.path} allows any origin *and* enables credentialed cross-origin requests. Any website a logged-in user visits can call this API as them and read the response.`
-          : `${file.path} allows any origin to call this API. Every endpoint it covers is reachable from any page on the internet.`,
+          : `${file.path} allows any origin to call this API. That is correct for a deliberately public endpoint, and wrong for anything that returns user-specific data - confirm which this is.`,
         evidence: [file.evidenceAt(index, { length })],
       });
     };

@@ -7,6 +7,8 @@
  */
 import type { SourceFile } from '../analysis/source-file.js';
 import type { ProjectIndex } from '../core/project-index.js';
+import type { Evidence } from '../types/core.js';
+import type { Applicability } from '../types/rule.js';
 
 /** HTTP methods that change state and therefore need authorisation. */
 export const MUTATING_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE'] as const;
@@ -185,7 +187,9 @@ export function projectHasRateLimiter(index: ProjectIndex): boolean {
 
 /** Call expressions that send a prompt to a large language model. */
 const LLM_CALL_PATTERNS: readonly RegExp[] = [
-  /\bchat\s*\.\s*completions\s*\.\s*create\s*\(/,
+  // `chat.completions.create` is matched by the generic completions pattern
+  // below, so it is not listed separately - overlapping alternatives would
+  // report the same call site twice.
   /\bcompletions\s*\.\s*create\s*\(/,
   /\bresponses\s*\.\s*create\s*\(/,
   /\bmessages\s*\.\s*(?:create|stream)\s*\(/,
@@ -195,7 +199,11 @@ const LLM_CALL_PATTERNS: readonly RegExp[] = [
   /\bstreamObject\s*\(/,
   /\bgenerateContent\s*\(/,
   /\bembeddings\s*\.\s*create\s*\(/,
-  /\binvoke\s*\(\s*\{?\s*(?:messages|input)/,
+  // `.invoke({ messages })` is deliberately absent. In LangChain it is the
+  // generic runnable entry point - it covers chains, retrievers and agents,
+  // where a token cap or a timeout is configured on the model object rather
+  // than at the call site. Matching it reported hundreds of findings that had
+  // no action attached to them.
 ];
 
 /** True when the text contains at least one LLM invocation. */
@@ -203,15 +211,24 @@ export function hasLlmCall(text: string): boolean {
   return LLM_CALL_PATTERNS.some((p) => p.test(text));
 }
 
-/** Offsets of every LLM invocation in a file. */
+/**
+ * Offsets of every LLM invocation in a file, in source order.
+ *
+ * Overlapping matches are collapsed: a call that satisfies two patterns is one
+ * call, and reporting it twice would both clutter the output and double-count
+ * against the score.
+ */
 export function findLlmCalls(file: SourceFile): { index: number; text: string }[] {
-  const out: { index: number; text: string }[] = [];
+  const byOffset = new Map<number, { index: number; text: string }>();
   for (const pattern of LLM_CALL_PATTERNS) {
     for (const match of file.matches(new RegExp(pattern.source, 'g'))) {
-      out.push({ index: match.index, text: match.text });
+      const existing = byOffset.get(match.index);
+      if (existing === undefined || match.text.length > existing.text.length) {
+        byOffset.set(match.index, { index: match.index, text: match.text });
+      }
     }
   }
-  return out.sort((a, b) => a.index - b.index);
+  return [...byOffset.values()].sort((a, b) => a.index - b.index);
 }
 
 /**
@@ -243,15 +260,33 @@ export function callArgumentObject(file: SourceFile, callOffset: number): string
   return file.content.slice(open + 1, end);
 }
 
+/**
+ * Paths whose contents are not the deployed application.
+ *
+ * Examples, templates, benchmarks, generated bindings and end-to-end suites
+ * are written to demonstrate or exercise something, not to run in production.
+ * Judging them by production rules produces findings nobody will ever act on,
+ * and a report full of those is a report people stop reading.
+ *
+ * Determined by path, never by project name - a rule that has to know which
+ * repository it is looking at is a rule that does not work.
+ */
+const NON_PRODUCTION_PATH =
+  /(?:^|\/)(?:examples?|demos?|samples?|playground|sandbox|starters?|templates?|boilerplate|scaffold|docs?|documentation|website|www|fixtures?|__fixtures__|__mocks__|mocks|stories|__stories__|bench|benchmarks?|perf|e2e|cypress|playwright|test|tests|__tests__|spec|specs)\//i;
+
+/** Filenames that conventionally hold generated output. */
+const GENERATED_FILE =
+  /(?:\.gen|\.generated|_generated|-generated|\.pb|_pb|-bindings|\.bundle|\.min)\.[cm]?[jt]sx?$/i;
+
 /** True when a file is exempt from production-code rules. */
 export function isNonProductionFile(file: SourceFile): boolean {
   return (
     file.role === 'test' ||
     file.role === 'config' ||
-    file.path.startsWith('scripts/') ||
-    file.path.startsWith('tools/') ||
-    file.path.startsWith('bench/') ||
-    /(?:^|\/)(?:examples?|demos?|docs?|fixtures?|__mocks__|mocks)\//.test(file.path)
+    /^(?:scripts?|tools?|bin|build|config)\//.test(file.path) ||
+    NON_PRODUCTION_PATH.test(file.path) ||
+    GENERATED_FILE.test(file.path) ||
+    /\.stories\.[cm]?[jt]sx?$/i.test(file.path)
   );
 }
 
@@ -266,6 +301,10 @@ const SECRET_ENV_NAME =
  * public-env rule fires on every correctly-configured Supabase and Clerk app.
  */
 const KNOWN_PUBLIC_ENV_SUFFIXES: readonly RegExp[] = [
+  // Analytics, error-reporting, search and realtime vendors issue client-side
+  // keys that are meant to be embedded in the page. Flagging them is a false
+  // positive every time, and one that trains people to ignore the rule.
+  /^(?:POSTHOG|MIXPANEL|AMPLITUDE|SEGMENT|GA|GTM|GOOGLE_ANALYTICS|HOTJAR|LOGROCKET|FULLSTORY|INTERCOM|CRISP|PLAUSIBLE|FATHOM|UMAMI|SENTRY|BUGSNAG|DATADOG|ALGOLIA|TYPESENSE|MEILISEARCH|MAPBOX|GOOGLE_MAPS|PUSHER|ABLY|STREAM|LIVEKIT|CLERK|FIREBASE|VAPID|TURNSTILE|RECAPTCHA|HCAPTCHA)[A-Z0-9_]*$/i,
   /ANON_KEY$/i,
   /PUBLISHABLE_KEY$/i,
   /PUBLIC_KEY$/i,
@@ -362,6 +401,88 @@ export function isDeployableApp(index: ProjectIndex): boolean {
     'react',
     'vite',
   );
+}
+
+/**
+ * Build evidence for a project-level finding.
+ *
+ * Rules that reason about the project as a whole - "there is no error
+ * monitoring", "there is no health endpoint" - still have to cite something.
+ * Pointing at a directory produces a SARIF location no tool can open, and
+ * inventing a snippet that is not in the file is worse: it looks like a quote
+ * from the source and is not.
+ *
+ * This anchors such a finding to a real line of a real file, preferring the
+ * first line that matches `anchor` and falling back to the file's first
+ * non-empty line.
+ *
+ * @param index - Project index to look the file up in.
+ * @param filePath - Repository-relative path of the file to cite.
+ * @param options.anchor - Pattern identifying the most relevant line.
+ * @param options.note - Short explanation attached to the evidence.
+ */
+export function projectEvidence(
+  index: ProjectIndex,
+  filePath: string,
+  options: { anchor?: RegExp; note?: string } = {},
+): Evidence {
+  const file = index.file(filePath);
+  if (file === undefined) {
+    // The file is not in the index at all; cite it without a snippet rather
+    // than fabricating one.
+    return {
+      file: filePath,
+      line: 1,
+      column: 1,
+      snippet: '',
+      ...(options.note === undefined ? {} : { note: options.note }),
+    };
+  }
+
+  let offset = 0;
+  if (options.anchor !== undefined) {
+    const match = [...file.matchesText(new RegExp(options.anchor.source, 'g'))][0];
+    if (match !== undefined) offset = match.index;
+  }
+  if (offset === 0) {
+    // Skip leading blank lines so the snippet is never empty.
+    const firstContent = /\S/.exec(file.content);
+    offset = firstContent?.index ?? 0;
+  }
+  return file.evidenceAt(offset, options.note === undefined ? {} : { note: options.note });
+}
+
+/**
+ * Applicability gate for the accessibility rules.
+ *
+ * Accessibility is about rendered UI. An HTTP API with no JSX has no controls,
+ * no images and no focus order, so "accessibility: 100/100" would be a free
+ * pass rather than a finding - and a free pass raises the overall score, which
+ * is a weighted mean over assessed categories. Reporting the category as
+ * not-applicable keeps the number honest.
+ */
+export function requiresRenderedUi(index: ProjectIndex): Applicability {
+  const hasJsx = index.files.some((file) => file.isJsx && file.has(/<[A-Za-z][\w.-]*[\s/>]/g));
+  if (!hasJsx) {
+    return {
+      applicable: false,
+      status: 'not-applicable',
+      reason: 'No JSX was found in this project, so there is no rendered UI to assess.',
+    };
+  }
+  return { applicable: true };
+}
+
+/** Applicability gate for rules that only matter when a model SDK is present. */
+export function requiresModelSdk(index: ProjectIndex): Applicability {
+  if (!index.hasFramework('openai', 'anthropic', 'vercel-ai-sdk', 'langchain')) {
+    return {
+      applicable: false,
+      status: 'not-applicable',
+      reason: 'No language model SDK was detected in this project.',
+    };
+  }
+  return { applicable: true };
 }
 
 /** Cap how many findings a single rule reports, to keep reports readable. */

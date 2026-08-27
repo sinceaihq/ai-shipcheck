@@ -1,5 +1,5 @@
 import { defineRule } from '../../core/define-rule.js';
-import { MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { isNonProductionFile, MAX_FINDINGS_PER_RULE } from '../helpers.js';
 
 /** Packages that are large and have a materially smaller alternative. */
 const HEAVY_PACKAGES: Readonly<Record<string, string>> = {
@@ -44,7 +44,7 @@ export default defineRule({
 
   checkFile(file, ctx) {
     if (!file.isClient && !file.isClientComponent) return;
-    if (file.role === 'test') return;
+    if (isNonProductionFile(file)) return;
     let reported = 0;
 
     for (const match of file.matches(BARE_IMPORT)) {

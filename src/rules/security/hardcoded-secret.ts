@@ -133,6 +133,14 @@ function classify(value: string, assignedTo: string | null): Verdict | null {
 
   if (assignedTo === null || !SECRET_NAME.test(assignedTo)) return null;
   if (value.length < MIN_ENTROPY_LENGTH) return null;
+
+  // An opaque credential is base62/base64url: ASCII letters, digits and a few
+  // separators. Requiring that shape before measuring entropy is what stops
+  // this rule firing on translated user-facing text - Shannon entropy is
+  // measured per character, and CJK or Thai prose scores higher than a real
+  // API key does. A localisation file is not a credential leak.
+  if (!/^[A-Za-z0-9_\-+/=.:]+$/.test(value)) return null;
+
   // Reject anything that is plainly not an opaque token.
   if (/\s/.test(value)) return null;
   if (value.startsWith('http://') || value.startsWith('https://')) return null;

@@ -234,6 +234,74 @@ describe('computeScore', () => {
   });
 });
 
+describe('score honesty', () => {
+  it('excludes categories that do not apply rather than awarding them 100', async () => {
+    // An HTTP API with no UI has no controls, no images and no focus order.
+    // Scoring accessibility 100 there would be a free pass, and the overall
+    // score is a weighted mean over assessed categories - so a free pass
+    // silently raises it.
+    const { makeProject, removeProject, scanDirectory } = await import('../helpers/project.js');
+    const dir = await makeProject({
+      'package.json': JSON.stringify({ name: 'api', dependencies: { express: '^4.21.2' } }),
+      'src/server.ts': "import express from 'express';\nexport const app = express();",
+    });
+    try {
+      const result = await scanDirectory(dir);
+      const accessibility = result.categories.find((c) => c.category === 'accessibility');
+      const aiCost = result.categories.find((c) => c.category === 'ai-cost');
+      expect(accessibility?.status).toBe('not-applicable');
+      expect(accessibility?.score).toBeNull();
+      expect(aiCost?.status).toBe('not-applicable');
+    } finally {
+      await removeProject(dir);
+    }
+  });
+
+  it('cannot be raised by adding files that contain nothing', async () => {
+    const { makeProject, removeProject, scanDirectory } = await import('../helpers/project.js');
+    const broken: Record<string, string> = {
+      'package.json': JSON.stringify({ name: 'app', dependencies: { next: '^15.1.0' } }),
+      'app/api/x/route.ts':
+        'export async function POST(r: Request) { const b = await r.json(); await db.note.create({ data: b }); return Response.json({}); }',
+    };
+    const padded = { ...broken };
+    for (let i = 0; i < 150; i++) padded[`filler/f${i}.ts`] = `export const v${i} = ${i};`;
+
+    const a = await makeProject(broken);
+    const b = await makeProject(padded);
+    try {
+      const first = await scanDirectory(a);
+      const second = await scanDirectory(b);
+      expect(second.score).toBe(first.score);
+      expect(second.verdict).toBe(first.verdict);
+    } finally {
+      await removeProject(a);
+      await removeProject(b);
+    }
+  });
+
+  it('reports coverage counts that add up', async () => {
+    const { makeProject, removeProject, scanDirectory } = await import('../helpers/project.js');
+    const dir = await makeProject({
+      'package.json': JSON.stringify({ name: 'app', dependencies: { next: '^15.1.0' } }),
+      'app/page.tsx': 'export default () => <p>hi</p>;',
+    });
+    try {
+      const { coverage, checks } = await scanDirectory(dir);
+      expect(coverage.checksTotal).toBe(checks.length);
+      expect(
+        coverage.checksRun +
+          coverage.checksUnassessed +
+          coverage.checksNotApplicable +
+          coverage.checksDisabled,
+      ).toBe(coverage.checksTotal);
+      expect(coverage.checksRun).toBeLessThan(coverage.checksTotal);
+    } finally {
+      await removeProject(dir);
+    }
+  });
+});
+
 describe('decideVerdict', () => {
   it('names the blocking rules', () => {
     const { verdict, reasons } = decideVerdict({

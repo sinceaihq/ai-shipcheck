@@ -1,5 +1,6 @@
 import { defineRule } from '../../core/define-rule.js';
 import { toRoutePath } from '../security/exposed-debug-route.js';
+import { projectEvidence } from '../helpers.js';
 
 const HEALTH_PATH =
   /(?:^|\/)(?:health|healthz|healthcheck|health-check|ready|readyz|readiness|liveness|livez|ping|status|up)(?:\/|$)/;
@@ -51,13 +52,10 @@ export default defineRule({
       explanation:
         'No route matching /health, /healthz, /ready or /status was found, and no deployment config declares a health check. Orchestrators and uptime monitors have nothing to probe, so a wedged instance keeps receiving traffic.',
       evidence: [
-        {
-          file: 'package.json',
-          line: 1,
-          column: 1,
-          snippet: ctx.index.profile.name ?? 'project',
-          note: 'No health endpoint found anywhere in the project',
-        },
+        projectEvidence(ctx.index, 'package.json', {
+          anchor: /"(?:scripts|name)"/,
+          note: 'no route matching /health, /healthz, /ready or /status exists',
+        }),
       ],
     });
   },

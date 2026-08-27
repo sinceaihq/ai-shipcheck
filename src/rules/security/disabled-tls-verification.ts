@@ -1,5 +1,5 @@
 import { defineRule } from '../../core/define-rule.js';
-import { MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { isNonProductionFile, MAX_FINDINGS_PER_RULE } from '../helpers.js';
 
 /**
  * `NODE_TLS_REJECT_UNAUTHORIZED = 0`, in the forms it actually appears:
@@ -12,6 +12,17 @@ const TLS_ENV =
 const REJECT_UNAUTHORIZED = /rejectUnauthorized\s*:\s*false/g;
 const INSECURE_AGENT =
   /strictSSL\s*:\s*false|insecureHTTPParser\s*:\s*true|checkServerIdentity\s*:\s*\(\s*\)\s*=>/g;
+
+/**
+ * An explicit, user-facing opt-in to insecure transport.
+ *
+ * An HTTP client that offers an `--insecure` flag, the way curl does, is not
+ * the same thing as a server that silently trusts any certificate. When the
+ * disabling is visibly gated on such an option the trade-off was made
+ * deliberately, and reporting it as a deployment blocker is wrong.
+ */
+const OPT_IN_INSECURE =
+  /\b(?:options|opts|args|argv|flags|config|settings)\s*(?:\?\.)?\.\s*(?:insecure|allowInsecure|skipTlsVerify|ignoreSsl|selfSigned|noStrictSsl)\b|--insecure|\bif\s*\(\s*[\w$.]*insecure/i;
 
 export default defineRule({
   meta: {
@@ -47,10 +58,16 @@ export default defineRule({
   ],
 
   checkFile(file, ctx) {
-    if (file.role === 'test') return;
+    if (isNonProductionFile(file)) return;
     let reported = 0;
     const emit = (index: number, length: number, what: string): void => {
       if (reported >= MAX_FINDINGS_PER_RULE) return;
+      const line = file.lineAt(index);
+      const context = [line - 3, line - 2, line - 1, line]
+        .filter((n) => n >= 1)
+        .map((n) => file.lineText(n))
+        .join('\n');
+      if (OPT_IN_INSECURE.test(context)) return;
       reported++;
       ctx.report({
         title: `${what} disables TLS certificate verification`,

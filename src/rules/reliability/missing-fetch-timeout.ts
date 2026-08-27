@@ -1,5 +1,5 @@
 import { defineRule } from '../../core/define-rule.js';
-import { MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { isNonProductionFile, MAX_FINDINGS_PER_RULE } from '../helpers.js';
 
 const FETCH_CALL = /\bfetch\s*\(/g;
 
@@ -23,19 +23,35 @@ export default defineRule({
   },
 
   appliesTo(index) {
-    if (!index.profile.hasServerCode) {
+    if (
+      index.routeFiles.length === 0 &&
+      index.withRole('server-actions', 'server-module').length === 0
+    ) {
       return {
         applicable: false,
         status: 'not-applicable',
-        reason: 'No server-side code was found; browser fetch calls are bounded by the user agent.',
+        reason:
+          'No request-handling code was found. A missing timeout matters where a hung upstream holds a client connection open.',
       };
     }
     return { applicable: true };
   },
 
   checkFile(file, ctx) {
-    if (!file.isServer) return;
-    if (file.role === 'test') return;
+    // Restricted to code that serves requests. A missing timeout in a build
+    // script or a shared utility is worth far less than one in a route
+    // handler, and reporting every fetch in a codebase amounts to reporting
+    // that the codebase uses fetch.
+    if (
+      file.role !== 'next-app-route' &&
+      file.role !== 'next-pages-api' &&
+      file.role !== 'server-actions' &&
+      file.role !== 'next-middleware' &&
+      file.role !== 'server-module'
+    ) {
+      return;
+    }
+    if (isNonProductionFile(file)) return;
     // A module-level timeout helper covers everything in the file.
     if (TIMEOUT_SIGNAL.test(file.code)) return;
 

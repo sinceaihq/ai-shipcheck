@@ -1,5 +1,10 @@
 import { defineRule } from '../../core/define-rule.js';
-import { hasAuthSignal, routeHandlers, MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import {
+  hasAuthSignal,
+  isNonProductionFile,
+  routeHandlers,
+  MAX_FINDINGS_PER_RULE,
+} from '../helpers.js';
 import { toRoutePath } from '../security/exposed-debug-route.js';
 
 /** Endpoints that are meant to be callable without a session. */
@@ -44,6 +49,7 @@ export default defineRule({
   },
 
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     if (file.role !== 'next-app-route' && file.role !== 'next-pages-api') return;
 
     const routePath = toRoutePath(file.path);

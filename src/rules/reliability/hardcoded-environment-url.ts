@@ -6,7 +6,7 @@ const LOCAL_URL =
 
 /** Places where a localhost default is legitimate. */
 const ACCEPTABLE_CONTEXT =
-  /(?:process\.env|import\.meta\.env|\?\?|\|\||NODE_ENV|isDev|development|fallback|default)/;
+  /(?:process\.env|import\.meta\.env|\?\?|\|\||NODE_ENV|isDev|development|fallback|default|=\s*['"`]https?:\/\/(?:localhost|127)[^'"`]*['"`]\s*[,)}])/;
 
 export default defineRule({
   meta: {
@@ -25,6 +25,18 @@ export default defineRule({
 
   checkFile(file, ctx) {
     if (isNonProductionFile(file)) return;
+    // A localhost default in an email template, a constants list of candidate
+    // local endpoints, or a dev script is normal. What breaks in production is
+    // a localhost URL that a request path actually calls.
+    if (
+      file.role !== 'next-app-route' &&
+      file.role !== 'next-pages-api' &&
+      file.role !== 'server-actions' &&
+      file.role !== 'next-middleware' &&
+      file.role !== 'server-module'
+    ) {
+      return;
+    }
     let reported = 0;
 
     for (const match of file.matchesText(LOCAL_URL)) {

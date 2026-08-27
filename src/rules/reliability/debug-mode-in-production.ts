@@ -26,6 +26,10 @@ export default defineRule({
   fileExtensions: ['.js', '.jsx', '.mjs', '.cjs', '.ts', '.tsx', '.mts', '.cts', '.json'],
 
   checkFile(file, ctx) {
+    // This rule exists to inspect build configuration, so it deliberately does
+    // not use the shared non-production guard - that guard excludes files with
+    // the `config` role, which is precisely what is being checked here.
+    if (/(?:^|\/)(?:examples?|templates?|fixtures?|__tests__|e2e)\//i.test(file.path)) return;
     let reported = 0;
 
     if (/^(?:src\/)?next\.config\.[cm]?[jt]s$/.test(file.path)) {

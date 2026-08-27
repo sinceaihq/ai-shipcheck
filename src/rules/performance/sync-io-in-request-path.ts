@@ -1,5 +1,5 @@
 import { defineRule } from '../../core/define-rule.js';
-import { MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { isDeployableApp, isNonProductionFile, MAX_FINDINGS_PER_RULE } from '../helpers.js';
 
 const SYNC_FS =
   /\b(?:fs\s*\.\s*)?(readFileSync|writeFileSync|appendFileSync|readdirSync|statSync|existsSync|mkdirSync|unlinkSync|copyFileSync|rmSync)\s*\(/g;
@@ -34,15 +34,17 @@ export default defineRule({
   },
 
   checkFile(file, ctx) {
-    if (
-      file.role !== 'next-app-route' &&
-      file.role !== 'next-pages-api' &&
-      file.role !== 'server-actions' &&
-      file.role !== 'next-middleware' &&
-      file.role !== 'server-module'
-    ) {
-      return;
-    }
+    if (isNonProductionFile(file)) return;
+    const isRouteHandler =
+      file.role === 'next-app-route' ||
+      file.role === 'next-pages-api' ||
+      file.role === 'server-actions' ||
+      file.role === 'next-middleware';
+    // A `server-module` in a build tool or a library is not a request path.
+    // Only treat one as such when the project is actually a deployed
+    // application, otherwise every synchronous read in a CLI is reported.
+    const isAppServerModule = file.role === 'server-module' && isDeployableApp(ctx.index);
+    if (!isRouteHandler && !isAppServerModule) return;
 
     let reported = 0;
     const emit = (index: number, length: number, what: string, why: string): void => {

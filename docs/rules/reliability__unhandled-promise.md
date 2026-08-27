@@ -6,7 +6,7 @@
 | --- | --- |
 | **Category** | Reliability |
 | **Severity** | `medium` |
-| **Confidence** | `medium` |
+| **Confidence** | `low` |
 | **Blocker** | No |
 | **Tags** | `error-handling`, `resilience` |
 

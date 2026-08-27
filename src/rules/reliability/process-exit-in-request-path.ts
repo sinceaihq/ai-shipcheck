@@ -1,5 +1,5 @@
 import { defineRule } from '../../core/define-rule.js';
-import { MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { isNonProductionFile, MAX_FINDINGS_PER_RULE } from '../helpers.js';
 
 const PROCESS_EXIT = /\bprocess\s*\.\s*(?:exit|abort)\s*\(/g;
 
@@ -18,6 +18,7 @@ export default defineRule({
   },
 
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     if (
       file.role !== 'next-app-route' &&
       file.role !== 'next-pages-api' &&

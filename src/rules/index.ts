@@ -50,7 +50,7 @@ import reliabilityRetryWithoutBackoff from './reliability/retry-without-backoff.
 import reliabilitySwallowedError from './reliability/swallowed-error.js';
 import reliabilityUnhandledPromise from './reliability/unhandled-promise.js';
 import testingCiMissingChecks from './testing/ci-missing-checks.js';
-import testingFocusedOrSkippedTest from './testing/focused-or-skipped-test.js';
+import testingFocusedTest from './testing/focused-test.js';
 import testingNoTestInfrastructure from './testing/no-test-infrastructure.js';
 import testingUntestedServerCode from './testing/untested-server-code.js';
 import observabilityConsoleOnlyLogging from './observability/console-only-logging.js';
@@ -116,7 +116,7 @@ export const BUILTIN_RULES: readonly Rule[] = [
   reliabilitySwallowedError,
   reliabilityUnhandledPromise,
   testingCiMissingChecks,
-  testingFocusedOrSkippedTest,
+  testingFocusedTest,
   testingNoTestInfrastructure,
   testingUntestedServerCode,
   observabilityConsoleOnlyLogging,

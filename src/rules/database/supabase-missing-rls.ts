@@ -1,5 +1,5 @@
 import { defineRule } from '../../core/define-rule.js';
-import { findCreatedTables, findRlsEnabledTables, stripSqlComments } from './sql.js';
+import { findCreatedTables, findRlsEnabledTables, isSupabaseSql, stripSqlComments } from './sql.js';
 import { MAX_FINDINGS_PER_RULE } from '../helpers.js';
 
 /** Postgres internal schemas that are managed by the platform. */
@@ -29,20 +29,20 @@ export default defineRule({
   fileExtensions: ['.sql'],
 
   appliesTo(index) {
-    const sqlFiles = index.findFiles((f) => f.ext === '.sql');
+    const sqlFiles = index.findFiles((f) => f.ext === '.sql' && isSupabaseSql(f.path));
     if (sqlFiles.length === 0) {
       return {
         applicable: false,
         status: 'unassessed',
         reason:
-          'No SQL migration files were found, so table-level RLS could not be verified from source. Check policies in the Supabase dashboard.',
+          'No SQL under a supabase/ directory was found, so table-level RLS could not be verified from source. Check policies in the Supabase dashboard.',
       };
     }
     return { applicable: true };
   },
 
   checkProject(ctx) {
-    const sqlFiles = ctx.index.findFiles((f) => f.ext === '.sql');
+    const sqlFiles = ctx.index.findFiles((f) => f.ext === '.sql' && isSupabaseSql(f.path));
     if (sqlFiles.length === 0) return;
 
     // RLS may be enabled in a later migration than the CREATE TABLE, so the

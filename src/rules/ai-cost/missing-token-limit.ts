@@ -1,5 +1,10 @@
 import { defineRule } from '../../core/define-rule.js';
-import { callArgumentObject, findLlmCalls, MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import {
+  callArgumentObject,
+  findLlmCalls,
+  MAX_FINDINGS_PER_RULE,
+  isNonProductionFile,
+} from '../helpers.js';
 
 /** Output-bounding options across the major SDKs. */
 const TOKEN_LIMIT =
@@ -35,7 +40,7 @@ export default defineRule({
   },
 
   checkFile(file, ctx) {
-    if (file.role === 'test') return;
+    if (isNonProductionFile(file)) return;
     let reported = 0;
 
     for (const call of findLlmCalls(file)) {

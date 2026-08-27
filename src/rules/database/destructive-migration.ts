@@ -1,9 +1,18 @@
 import { defineRule } from '../../core/define-rule.js';
 import { stripSqlComments } from './sql.js';
-import { MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { isNonProductionFile, MAX_FINDINGS_PER_RULE } from '../helpers.js';
 
+/**
+ * Statements that destroy data.
+ *
+ * Dropping a *constraint* or an *index* is deliberately absent: it changes
+ * what the database enforces or how it searches, but no row is lost. Prisma
+ * emits `ALTER TABLE ... DROP CONSTRAINT` in almost every migration that
+ * touches a relation, and reporting those buried the statements that do
+ * genuinely delete data.
+ */
 const DESTRUCTIVE =
-  /\b(drop\s+table|drop\s+column|drop\s+schema|drop\s+database|truncate(?:\s+table)?|alter\s+table\s+[\w".]+\s+drop\s+constraint)\b/gi;
+  /\b(drop\s+table|drop\s+column|drop\s+schema|drop\s+database|truncate(?:\s+table)?|alter\s+table\s+[\w".]+\s+drop\s+column)\b/gi;
 
 /** Guards that make a destructive statement safe to re-run and intentional. */
 const GUARDED = /if\s+exists/i;
@@ -36,6 +45,7 @@ export default defineRule({
   },
 
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     if (file.ext !== '.sql') return;
     const sql = stripSqlComments(file.content);
     let reported = 0;

@@ -1,5 +1,5 @@
 import { defineRule } from '../../core/define-rule.js';
-import { hasAuthSignal, MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { hasAuthSignal, isNonProductionFile, MAX_FINDINGS_PER_RULE } from '../helpers.js';
 
 const EXPORTED_ACTION =
   /export\s+(?:async\s+function\s+([A-Za-z_$][\w$]*)|const\s+([A-Za-z_$][\w$]*)\s*=\s*async)/g;
@@ -37,6 +37,7 @@ export default defineRule({
   },
 
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     if (file.role !== 'server-actions') return;
     if (hasAuthSignal(file.text)) return;
 

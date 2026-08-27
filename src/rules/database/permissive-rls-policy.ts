@@ -1,6 +1,6 @@
 import { defineRule } from '../../core/define-rule.js';
-import { findPolicies, stripSqlComments } from './sql.js';
-import { MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { findPolicies, isSupabaseSql, stripSqlComments } from './sql.js';
+import { isNonProductionFile, MAX_FINDINGS_PER_RULE } from '../helpers.js';
 
 /** `USING (true)` / `WITH CHECK (true)` - a policy that allows everything. */
 const ALWAYS_TRUE = /(?:using|with\s+check)\s*\(\s*true\s*\)/i;
@@ -28,7 +28,7 @@ export default defineRule({
   fileExtensions: ['.sql'],
 
   appliesTo(index) {
-    if (index.findFiles((f) => f.ext === '.sql').length === 0) {
+    if (index.findFiles((f) => f.ext === '.sql' && isSupabaseSql(f.path)).length === 0) {
       return {
         applicable: false,
         status: 'unassessed',
@@ -40,7 +40,8 @@ export default defineRule({
   },
 
   checkFile(file, ctx) {
-    if (file.ext !== '.sql') return;
+    if (isNonProductionFile(file)) return;
+    if (file.ext !== '.sql' || !isSupabaseSql(file.path)) return;
     const sql = stripSqlComments(file.content);
     let reported = 0;
 

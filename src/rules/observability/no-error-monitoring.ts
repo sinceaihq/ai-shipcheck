@@ -1,5 +1,5 @@
 import { defineRule } from '../../core/define-rule.js';
-import { isDeployableApp } from '../helpers.js';
+import { isDeployableApp, projectEvidence } from '../helpers.js';
 
 const MONITORING_DEPENDENCIES = [
   '@sentry/node',
@@ -70,13 +70,10 @@ export default defineRule({
       explanation:
         'No error monitoring, tracing or exception-reporting SDK is declared in package.json. Production exceptions will not be reported anywhere you can see them.',
       evidence: [
-        {
-          file: 'package.json',
-          line: 1,
-          column: 1,
-          snippet: '"dependencies": { ... }',
-          note: 'No error monitoring SDK found',
-        },
+        projectEvidence(ctx.index, 'package.json', {
+          anchor: /"dependencies"/,
+          note: 'no error monitoring SDK among the declared dependencies',
+        }),
       ],
     });
   },

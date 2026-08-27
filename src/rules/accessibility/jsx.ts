@@ -111,3 +111,34 @@ export function hasAttribute(attributes: string, name: string): boolean {
 export function hasSpread(attributes: string): boolean {
   return /\{\s*\.\.\./.test(attributes);
 }
+
+/**
+ * Offset just past the closing tag that matches an element opened at
+ * `openingTagEnd`, or the end of the file when it cannot be found.
+ *
+ * Used to decide whether one element is nested inside another - for instance
+ * whether a form control sits inside a `<label>`, which associates the two
+ * without needing `htmlFor`.
+ */
+export function closingTagEnd(content: string, openingTagEnd: number, tag: string): number {
+  const open = new RegExp(`<${tag}(?=[\\s/>])`, 'g');
+  const close = new RegExp(`</${tag}\\s*>`, 'g');
+  let depth = 1;
+  let cursor = openingTagEnd;
+  for (let guard = 0; guard < 500; guard++) {
+    open.lastIndex = cursor;
+    close.lastIndex = cursor;
+    const nextOpen = open.exec(content);
+    const nextClose = close.exec(content);
+    if (nextClose === null) return content.length;
+    if (nextOpen !== null && nextOpen.index < nextClose.index) {
+      depth++;
+      cursor = nextOpen.index + nextOpen[0].length;
+      continue;
+    }
+    depth--;
+    cursor = nextClose.index + nextClose[0].length;
+    if (depth === 0) return cursor;
+  }
+  return content.length;
+}

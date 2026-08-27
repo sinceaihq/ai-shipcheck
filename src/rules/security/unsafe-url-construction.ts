@@ -1,5 +1,5 @@
 import { defineRule } from '../../core/define-rule.js';
-import { MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { isNonProductionFile, MAX_FINDINGS_PER_RULE } from '../helpers.js';
 
 /** Outbound request sinks whose URL is built by interpolation. */
 const FETCH_INTERPOLATED =
@@ -31,7 +31,7 @@ export default defineRule({
 
   checkFile(file, ctx) {
     if (!file.isServer && file.role !== 'other') return;
-    if (file.role === 'test') return;
+    if (isNonProductionFile(file)) return;
     let reported = 0;
 
     for (const match of file.matches(FETCH_INTERPOLATED)) {

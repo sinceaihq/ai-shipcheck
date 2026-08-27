@@ -1,0 +1,178 @@
+{
+  "$comment": [
+    "Third-party repositories used to validate AI Shipcheck against real code.",
+    "",
+    "These repositories are NOT vendored. `npm run corpus:sync` clones each one",
+    "into a cache directory outside this repository and checks out the exact",
+    "commit recorded here, so a validation run is reproducible.",
+    "",
+    "`commit` is filled in by `npm run corpus:sync -- --pin` and must be",
+    "committed. A null commit means the repository has not been pinned yet.",
+    "",
+    "Every project here is public and permissively licensed for source",
+    "inspection. Shipcheck only ever reads their files as text; nothing in them",
+    "is executed, installed, or imported."
+  ],
+  "repositories": [
+    {
+      "name": "vercel/ai-chatbot",
+      "url": "https://github.com/vercel/ai-chatbot.git",
+      "ref": "main",
+      "commit": "c2f8235e1f3ea903ad8b7f61447c4f74164b5c58",
+      "license": "Apache-2.0",
+      "why": "Next.js App Router, Vercel AI SDK, Drizzle, auth - the exact stack v1 targets"
+    },
+    {
+      "name": "steven-tey/novel",
+      "url": "https://github.com/steven-tey/novel.git",
+      "ref": "main",
+      "commit": "fa95098e66476c466faebb8211baa5869c101a9c",
+      "license": "Apache-2.0",
+      "why": "Next.js App Router AI editor, monorepo"
+    },
+    {
+      "name": "supabase-community/nextjs-openai-doc-search",
+      "url": "https://github.com/supabase-community/nextjs-openai-doc-search.git",
+      "ref": "main",
+      "commit": "50d6bb71706b50a83c2a52dc4a7d3e426ac34adf",
+      "license": "MIT",
+      "why": "Supabase + OpenAI + Next.js, small enough to reason about exhaustively"
+    },
+    {
+      "name": "vercel/platforms",
+      "url": "https://github.com/vercel/platforms.git",
+      "ref": "main",
+      "commit": "ec12e65709c8263dd3462c4d33261851b8a3157d",
+      "license": "MIT",
+      "why": "Next.js App Router multi-tenant template"
+    },
+    {
+      "name": "shadcn-ui/ui",
+      "url": "https://github.com/shadcn-ui/ui.git",
+      "ref": "main",
+      "commit": "683a5a9b370acdb7785a0529434e6a3b8c7e0441",
+      "license": "MIT",
+      "why": "Large Next.js App Router monorepo, heavy accessibility surface"
+    },
+    {
+      "name": "t3-oss/create-t3-app",
+      "url": "https://github.com/t3-oss/create-t3-app.git",
+      "ref": "main",
+      "commit": "4709861f7e67a15564c0460c13e7b4b6cfcae40d",
+      "license": "MIT",
+      "why": "Next.js templates with Prisma, Drizzle and tRPC"
+    },
+    {
+      "name": "documenso/documenso",
+      "url": "https://github.com/documenso/documenso.git",
+      "ref": "main",
+      "commit": "4285c88f126291cc87445f2f8ec6212d47927f6a",
+      "license": "AGPL-3.0",
+      "why": "Production Next.js + Prisma application, monorepo"
+    },
+    {
+      "name": "dubinc/dub",
+      "url": "https://github.com/dubinc/dub.git",
+      "ref": "main",
+      "commit": "dc21ec52858d87174b06000e76011b08d418a58a",
+      "license": "AGPL-3.0",
+      "why": "Production Next.js App Router + Prisma, many API routes"
+    },
+    {
+      "name": "excalidraw/excalidraw",
+      "url": "https://github.com/excalidraw/excalidraw.git",
+      "ref": "master",
+      "commit": "e1bb9ff8f8931e783c11d104abb8967ac6605c9a",
+      "license": "MIT",
+      "why": "Large React + Vite application, mature and heavily reviewed"
+    },
+    {
+      "name": "TanStack/query",
+      "url": "https://github.com/TanStack/query.git",
+      "ref": "main",
+      "commit": "2969edf32f7e0c48e2a108d84712d6e01edfde21",
+      "license": "MIT",
+      "why": "Large TypeScript monorepo with React examples"
+    },
+    {
+      "name": "expressjs/express",
+      "url": "https://github.com/expressjs/express.git",
+      "ref": "master",
+      "commit": "023767fe9872e029271df1418f73401bff20ff40",
+      "license": "MIT",
+      "why": "Plain JavaScript Express codebase - no TypeScript, no framework config"
+    },
+    {
+      "name": "fastify/fastify",
+      "url": "https://github.com/fastify/fastify.git",
+      "ref": "main",
+      "commit": "1beaf7e72d24b2fc63a02a7f5806772a00e45454",
+      "license": "MIT",
+      "why": "Fastify detection and a large plain-JavaScript surface"
+    },
+    {
+      "name": "honojs/hono",
+      "url": "https://github.com/honojs/hono.git",
+      "ref": "main",
+      "commit": "499c35ebda35777fd35a7dd1906dd4f2687da61e",
+      "license": "MIT",
+      "why": "Hono detection, modern TypeScript library layout"
+    },
+    {
+      "name": "drizzle-team/drizzle-orm",
+      "url": "https://github.com/drizzle-team/drizzle-orm.git",
+      "ref": "main",
+      "commit": "b7862528fd8fc39bc2653a6c18dad7c1f4e68d10",
+      "license": "Apache-2.0",
+      "why": "Drizzle detection, heavy SQL string construction"
+    },
+    {
+      "name": "nextauthjs/next-auth",
+      "url": "https://github.com/nextauthjs/next-auth.git",
+      "ref": "main",
+      "commit": "a1a16a5a7780488c7449feece410033f445d0b31",
+      "license": "ISC",
+      "why": "Authentication library - the highest-risk area for auth-rule false positives"
+    },
+    {
+      "name": "Mintplex-Labs/anything-llm",
+      "url": "https://github.com/Mintplex-Labs/anything-llm.git",
+      "ref": "master",
+      "commit": "35c58d89907e675a8c4fb10544c19be0f050f611",
+      "license": "MIT",
+      "why": "Express + React LLM application with real cost-control surface"
+    },
+    {
+      "name": "langchain-ai/langchainjs",
+      "url": "https://github.com/langchain-ai/langchainjs.git",
+      "ref": "main",
+      "commit": "679f79bd19657548364d056643c288a72f2443eb",
+      "license": "MIT",
+      "why": "Large AI monorepo, many model invocations"
+    },
+    {
+      "name": "payloadcms/payload",
+      "url": "https://github.com/payloadcms/payload.git",
+      "ref": "main",
+      "commit": "528977b62cec3a2da48409712ca155065928334d",
+      "license": "MIT",
+      "why": "Large TypeScript CMS monorepo with Next.js and Express surfaces"
+    },
+    {
+      "name": "usebruno/bruno",
+      "url": "https://github.com/usebruno/bruno.git",
+      "ref": "main",
+      "commit": "cedf8381380dc547f37405e83eb88e4db98507de",
+      "license": "MIT",
+      "why": "Electron + React application, unusual layout"
+    },
+    {
+      "name": "vitejs/vite",
+      "url": "https://github.com/vitejs/vite.git",
+      "ref": "main",
+      "commit": "ee644014aab61e546742b862a7d7b0d6c7d67a7b",
+      "license": "MIT",
+      "why": "Vite detection and a large build-tool monorepo"
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 import { defineRule } from '../../core/define-rule.js';
-import { MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { isNonProductionFile, MAX_FINDINGS_PER_RULE } from '../helpers.js';
 
 /** Role/permission comparisons made in browser code. */
 const ROLE_CHECK =
@@ -34,6 +34,7 @@ export default defineRule({
   },
 
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     if (!file.isClientComponent && file.role !== 'react-module' && file.role !== 'next-pages-page')
       return;
 

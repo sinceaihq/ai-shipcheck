@@ -1,6 +1,6 @@
 import { defineRule } from '../../core/define-rule.js';
-import { attributeValue, findElements, hasSpread } from './jsx.js';
-import { MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { attributeValue, closingTagEnd, findElements, hasSpread } from './jsx.js';
+import { isNonProductionFile, requiresRenderedUi, MAX_FINDINGS_PER_RULE } from '../helpers.js';
 
 /** Input types that are self-describing and need no label. */
 const UNLABELLED_TYPES = /^(?:hidden|submit|reset|button|image)$/i;
@@ -23,8 +23,10 @@ export default defineRule({
     tags: ['wcag-3.3.2', 'a11y', 'forms'],
   },
 
+  appliesTo: requiresRenderedUi,
+
   checkFile(file, ctx) {
-    if (!file.isJsx || file.role === 'test') return;
+    if (!file.isJsx || isNonProductionFile(file)) return;
     let reported = 0;
 
     // A label whose htmlFor matches the control's id is the usual pattern; the
@@ -36,6 +38,14 @@ export default defineRule({
       if (htmlFor !== null && htmlFor.length > 0) labelledIds.add(htmlFor.trim());
     }
 
+    // `<label>Email <input /></label>` associates the two implicitly and is
+    // perfectly valid HTML. The ranges of every label element are collected so
+    // a control nested inside one can be recognised as already labelled.
+    const labelRanges = findElements(file, ['label', 'Label']).map((label) => ({
+      start: label.start,
+      end: closingTagEnd(file.content, label.end, label.tag),
+    }));
+
     for (const element of findElements(file, ['input', 'textarea', 'select'])) {
       if (reported >= MAX_FINDINGS_PER_RULE) return;
       if (hasSpread(element.attributes)) continue;
@@ -46,6 +56,18 @@ export default defineRule({
       if (attributeValue(element.attributes, 'aria-label') !== null) continue;
       if (attributeValue(element.attributes, 'aria-labelledby') !== null) continue;
       if (attributeValue(element.attributes, 'title') !== null) continue;
+
+      // A control that is hidden, or removed from the tab order, is not a
+      // control the user interacts with - it is usually triggered by a button
+      // elsewhere. Labelling it would not help anyone.
+      if (attributeValue(element.attributes, 'hidden') !== null) continue;
+      if (attributeValue(element.attributes, 'aria-hidden') !== null) continue;
+      const tabIndex = attributeValue(element.attributes, 'tabIndex');
+      if (tabIndex !== null && Number(tabIndex.replace(/[{}\s"']/g, '')) < 0) continue;
+
+      if (labelRanges.some((range) => element.start > range.start && element.start < range.end)) {
+        continue;
+      }
 
       const id = attributeValue(element.attributes, 'id');
       if (id !== null && labelledIds.has(id.trim())) continue;

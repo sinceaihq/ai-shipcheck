@@ -1,4 +1,5 @@
 import { defineRule } from '../../core/define-rule.js';
+import { isNonProductionFile } from '../helpers.js';
 import { attributeValue, findElements } from './jsx.js';
 
 export default defineRule({
@@ -33,6 +34,7 @@ export default defineRule({
   },
 
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     if (!file.isJsx) return;
     if (file.role !== 'next-app-special' && !/_document\.[cm]?[jt]sx?$/.test(file.path)) return;
 

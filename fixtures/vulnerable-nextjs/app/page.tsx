@@ -9,7 +9,7 @@ export default function HomePage() {
 
   return (
     <main>
-      <img src="/hero.png" width={800} height={400} />
+      <img src="/hero.png" />
 
       <div onClick={() => setOpen(!open)}>Toggle the panel</div>
 

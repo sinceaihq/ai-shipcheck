@@ -1,5 +1,5 @@
 import { defineRule } from '../../core/define-rule.js';
-import { MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { isNonProductionFile, MAX_FINDINGS_PER_RULE } from '../helpers.js';
 
 /** Loops whose body issues a query per iteration. */
 const LOOP = /\bfor\s*(?:await\s*)?\(|\.\s*(?:map|forEach|flatMap)\s*\(\s*(?:async\s*)?\(?/g;
@@ -36,6 +36,7 @@ export default defineRule({
   },
 
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     if (!file.isServer || file.role === 'test') return;
     let reported = 0;
 

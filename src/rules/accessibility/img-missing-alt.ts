@@ -1,6 +1,6 @@
 import { defineRule } from '../../core/define-rule.js';
 import { attributeValue, findElements, hasSpread } from './jsx.js';
-import { MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { isNonProductionFile, requiresRenderedUi, MAX_FINDINGS_PER_RULE } from '../helpers.js';
 
 export default defineRule({
   meta: {
@@ -20,8 +20,10 @@ export default defineRule({
     tags: ['wcag-1.1.1', 'a11y'],
   },
 
+  appliesTo: requiresRenderedUi,
+
   checkFile(file, ctx) {
-    if (!file.isJsx || file.role === 'test') return;
+    if (!file.isJsx || isNonProductionFile(file)) return;
     let reported = 0;
 
     for (const element of findElements(file, ['img', 'Image'])) {

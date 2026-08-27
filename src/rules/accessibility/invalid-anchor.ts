@@ -1,6 +1,6 @@
 import { defineRule } from '../../core/define-rule.js';
 import { attributeValue, findElements, hasSpread } from './jsx.js';
-import { MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { isNonProductionFile, requiresRenderedUi, MAX_FINDINGS_PER_RULE } from '../helpers.js';
 
 const PLACEHOLDER_HREF = /^\s*(?:#|javascript:void\(0\)|javascript:;|)\s*$/i;
 
@@ -22,8 +22,10 @@ export default defineRule({
     tags: ['wcag-4.1.2', 'a11y', 'semantics'],
   },
 
+  appliesTo: requiresRenderedUi,
+
   checkFile(file, ctx) {
-    if (!file.isJsx || file.role === 'test') return;
+    if (!file.isJsx || isNonProductionFile(file)) return;
     let reported = 0;
 
     for (const element of findElements(file, ['a'])) {

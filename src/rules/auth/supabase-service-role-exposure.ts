@@ -1,5 +1,5 @@
 import { defineRule } from '../../core/define-rule.js';
-import { isClientReachable, MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { isClientReachable, isNonProductionFile, MAX_FINDINGS_PER_RULE } from '../helpers.js';
 
 const SERVICE_ROLE =
   /(?:SUPABASE_SERVICE_ROLE_KEY|SUPABASE_SERVICE_KEY|service_role|serviceRoleKey|SERVICE_ROLE_KEY)/g;
@@ -27,6 +27,7 @@ export default defineRule({
   },
 
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     let reported = 0;
     for (const match of file.matches(SERVICE_ROLE)) {
       if (reported >= MAX_FINDINGS_PER_RULE) return;

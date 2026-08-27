@@ -1,4 +1,5 @@
 import { defineRule } from '../../core/define-rule.js';
+import { isNonProductionFile } from '../helpers.js';
 
 /** Env files that are meant to be committed. */
 const TEMPLATE_ENV = /\.env\.(?:example|sample|template|defaults?|test|ci)$/;
@@ -22,8 +23,11 @@ export default defineRule({
   },
 
   checkProject(ctx) {
+    // Test suites and playgrounds legitimately commit `.env` files as inputs
+    // to the thing they are testing - env loading, for instance. Those are
+    // data, not leaked configuration.
     const envFiles = ctx.index.files.filter(
-      (f) => f.role === 'env' && !TEMPLATE_ENV.test(f.path) && !f.path.includes('fixtures/'),
+      (f) => f.role === 'env' && !TEMPLATE_ENV.test(f.path) && !isNonProductionFile(f),
     );
 
     if (envFiles.length === 0) {

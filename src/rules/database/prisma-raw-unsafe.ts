@@ -1,5 +1,5 @@
 import { defineRule } from '../../core/define-rule.js';
-import { MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { isNonProductionFile, MAX_FINDINGS_PER_RULE } from '../helpers.js';
 
 const UNSAFE_RAW = /\$(?:queryRawUnsafe|executeRawUnsafe)\s*\(/g;
 
@@ -20,7 +20,7 @@ export default defineRule({
   },
 
   checkFile(file, ctx) {
-    if (file.role === 'test') return;
+    if (isNonProductionFile(file)) return;
     let reported = 0;
     for (const match of file.matches(UNSAFE_RAW)) {
       if (reported >= MAX_FINDINGS_PER_RULE) return;

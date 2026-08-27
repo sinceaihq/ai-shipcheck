@@ -1,5 +1,5 @@
 import { defineRule } from '../../core/define-rule.js';
-import { hasAuthSignal, MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { hasAuthSignal, isNonProductionFile, MAX_FINDINGS_PER_RULE } from '../helpers.js';
 
 /**
  * A record lookup keyed directly by an identifier taken from the request.
@@ -56,6 +56,7 @@ export default defineRule({
   },
 
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     if (
       file.role !== 'next-app-route' &&
       file.role !== 'next-pages-api' &&

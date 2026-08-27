@@ -1,7 +1,7 @@
 import { defineRule } from '../../core/define-rule.js';
-import { MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { isNonProductionFile, MAX_FINDINGS_PER_RULE } from '../helpers.js';
+import { attributeValue, findElements } from '../accessibility/jsx.js';
 
-const IMG_TAG = /<img\s[^>]{0,400}>/g;
 const REMOTE_OR_LOCAL_SRC = /\ssrc\s*=\s*["'{]/;
 
 export default defineRule({
@@ -22,20 +22,31 @@ export default defineRule({
 
   checkFile(file, ctx) {
     if (!file.isJsx) return;
-    if (file.role === 'test') return;
+    if (isNonProductionFile(file)) return;
     // Files that already use next/image are making a deliberate exception.
     if (/from\s+['"]next\/image['"]/.test(file.content)) return;
 
     let reported = 0;
-    for (const match of file.matches(IMG_TAG)) {
+    for (const element of findElements(file, ['img'])) {
       if (reported >= MAX_FINDINGS_PER_RULE) return;
-      if (!REMOTE_OR_LOCAL_SRC.test(match.text)) continue;
-      if (/data:image\//.test(match.text)) continue;
+      if (!REMOTE_OR_LOCAL_SRC.test(element.text)) continue;
+      if (/data:image\//.test(element.text)) continue;
+
+      // The concrete, measurable harm of a raw <img> is layout shift, and that
+      // only happens when the browser cannot reserve space for it. An <img>
+      // with explicit dimensions is a deliberate, defensible choice; reporting
+      // it too turns this into a style lint.
+      const hasWidth = attributeValue(element.attributes, 'width') !== null;
+      const hasHeight = attributeValue(element.attributes, 'height') !== null;
+      const hasAspect = /aspect-|w-\d|h-\d|size-\d/.test(element.attributes);
+      if ((hasWidth && hasHeight) || hasAspect) continue;
 
       reported++;
       ctx.report({
-        explanation: `${file.path} renders a raw <img>. Next.js will not resize, reformat or lazy-load it, and without width and height it shifts the layout as it loads.`,
-        evidence: [file.evidenceAt(match.index, { length: Math.min(match.text.length, 140) })],
+        explanation: `${file.path} renders a raw <img> with no width and height. The browser cannot reserve space for it, so the page shifts as it loads, and Next.js will not resize, reformat or lazy-load it either.`,
+        evidence: [
+          file.evidenceAt(element.start, { length: Math.min(element.end - element.start, 140) }),
+        ],
       });
     }
   },
