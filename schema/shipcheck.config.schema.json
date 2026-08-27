@@ -1,0 +1,90 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/sinceaihq/ai-shipcheck/main/schema/shipcheck.config.schema.json",
+  "title": "AI Shipcheck configuration",
+  "description": "Optional configuration for AI Shipcheck. Every field has a sensible default; the zero-config path is the supported one.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "URL of this schema, for editor completion."
+    },
+    "exclude": {
+      "type": "array",
+      "description": "Extra paths to skip, using .gitignore syntax, relative to the scan root.",
+      "items": { "type": "string" },
+      "examples": [["**/legacy/**", "packages/generated/**"]]
+    },
+    "rules": {
+      "type": "object",
+      "description": "Per-rule overrides, keyed by rule id. Run `ai-shipcheck rules` to list them.",
+      "additionalProperties": {
+        "oneOf": [
+          { "const": "off", "description": "Disable the rule." },
+          { "const": "on", "description": "Enable the rule even if its category is disabled." },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "severity": {
+                "type": "string",
+                "enum": ["critical", "high", "medium", "low", "info"],
+                "description": "Override how much a finding from this rule costs."
+              },
+              "enabled": {
+                "type": "boolean",
+                "description": "Whether the rule runs."
+              }
+            }
+          }
+        ]
+      }
+    },
+    "disabledCategories": {
+      "type": "array",
+      "description": "Whole categories to skip. A disabled category is excluded from the score entirely.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "security",
+          "auth",
+          "database",
+          "reliability",
+          "testing",
+          "observability",
+          "performance",
+          "accessibility",
+          "ai-cost"
+        ]
+      }
+    },
+    "minScore": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Exit with code 1 when the overall score is below this."
+    },
+    "failOn": {
+      "type": ["string", "null"],
+      "enum": ["critical", "high", "medium", "low", "info", "none", null],
+      "description": "Exit with code 1 when a finding of this severity or worse is reported."
+    },
+    "respectGitignore": {
+      "type": "boolean",
+      "default": true,
+      "description": "Honour .gitignore files while walking the tree."
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Resource ceilings that bound a scan. Raise with care.",
+      "properties": {
+        "maxFileSizeBytes": { "type": "integer", "minimum": 1, "default": 1048576 },
+        "maxFiles": { "type": "integer", "minimum": 1, "default": 25000 },
+        "maxTotalBytes": { "type": "integer", "minimum": 1, "default": 201326592 },
+        "maxDepth": { "type": "integer", "minimum": 1, "default": 24 }
+      }
+    }
+  }
+}

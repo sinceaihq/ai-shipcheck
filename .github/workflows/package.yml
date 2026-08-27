@@ -1,0 +1,73 @@
+name: Package integrity
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tarball:
+    name: Install from a packed tarball
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Pack
+        run: npm pack --pack-destination "${{ runner.temp }}"
+
+      - name: Install the tarball into a clean project
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${{ runner.temp }}/consumer"
+          cd "${{ runner.temp }}/consumer"
+          npm init -y > /dev/null
+          npm install "$(ls ${{ runner.temp }}/ai-shipcheck-*.tgz)"
+
+      - name: Run the installed binary against a fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${{ runner.temp }}/consumer"
+          npx ai-shipcheck --version
+          npx ai-shipcheck "${{ github.workspace }}/fixtures/secure-nextjs" --fail-on low
+          npx ai-shipcheck "${{ github.workspace }}/fixtures/vulnerable-nextjs" --format json > report.json
+          node -e "const r=require('./report.json'); if (r.verdict !== 'NOT READY') { throw new Error('expected NOT READY, got ' + r.verdict); }"
+
+  action-bundle:
+    name: Action bundle is up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Rebuild the action bundle
+        run: npm run build:action
+
+      - name: Fail if the committed bundle differs
+        run: |
+          if ! git diff --exit-code -- action/dist; then
+            echo "::error::action/dist is out of date. Run 'npm run build:action' and commit the result."
+            exit 1
+          fi

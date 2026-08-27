@@ -1,0 +1,23 @@
+node_modules/
+
+# Build output. `action/dist/` is deliberately NOT ignored: a JavaScript
+# GitHub Action runs whatever is committed at the tag a workflow pins, so the
+# bundle must be in the repository. CI fails if it is out of date.
+/dist/
+coverage/
+*.tsbuildinfo
+
+.DS_Store
+
+.env
+.env.*
+!.env.example
+# Fixture environment files are synthetic and must be committed so the
+# committed-env-file rule has a positive fixture. See fixtures/README.md.
+!fixtures/**/.env
+!fixtures/**/.env.*
+
+.vitest-temp/
+bench/results/
+*.tgz
+shipcheck.sarif

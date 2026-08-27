@@ -1,0 +1,61 @@
+name: AI Shipcheck
+description: Evidence-backed production-readiness check for JavaScript and TypeScript projects. No API key, no source-code upload.
+author: Since AI
+
+branding:
+  icon: check-circle
+  color: purple
+
+inputs:
+  path:
+    description: Directory to scan, relative to the repository root.
+    required: false
+    default: '.'
+  fail-on:
+    description: >-
+      Fail the job when a finding of this severity or worse is reported.
+      One of critical, high, medium, low, info, none. Leave empty to never fail on findings.
+    required: false
+    default: ''
+  min-score:
+    description: Fail the job when the overall score is below this number (0-100). Leave empty to disable.
+    required: false
+    default: ''
+  config:
+    description: Path to a shipcheck.config.json, relative to the repository root.
+    required: false
+    default: ''
+  sarif-file:
+    description: Where to write the SARIF report, relative to the repository root.
+    required: false
+    default: 'shipcheck.sarif'
+  annotations:
+    description: Emit inline annotations on the pull-request diff.
+    required: false
+    default: 'true'
+  summary:
+    description: Write the Markdown report to the workflow job summary.
+    required: false
+    default: 'true'
+
+outputs:
+  score:
+    description: Overall production-readiness score, 0-100.
+  verdict:
+    description: READY, NEEDS ATTENTION or NOT READY.
+  critical-count:
+    description: Number of critical findings.
+  high-count:
+    description: Number of high-severity findings.
+  medium-count:
+    description: Number of medium-severity findings.
+  low-count:
+    description: Number of low-severity findings.
+  findings-count:
+    description: Total number of findings.
+  sarif-file:
+    description: Path of the SARIF report that was written.
+
+runs:
+  using: node24
+  main: action/dist/index.js

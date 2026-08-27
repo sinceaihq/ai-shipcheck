@@ -1,0 +1,78 @@
+name: Bug report
+description: Something in AI Shipcheck does not work the way it should.
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file this. If the problem is a rule firing
+        when it should not, please use the **False positive** template instead -
+        it asks for the specific things needed to fix that quickly.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you run, and what did it do?
+      placeholder: |
+        I ran `npx ai-shipcheck .` on a Next.js 15 project and it exited with...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: >-
+        The smallest project that shows the problem. A few files inline is
+        ideal; a link to a repository also works.
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: AI Shipcheck version
+      description: Output of `npx ai-shipcheck --version`.
+      placeholder: 0.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: node
+    attributes:
+      label: Node version
+      description: Output of `node --version`.
+      placeholder: v24.0.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: >-
+        Paste the relevant output. Set `SHIPCHECK_DEBUG=1` for a stack trace on
+        an unexpected failure. **Check it for credentials before pasting** -
+        Shipcheck masks what it detects, but nothing masks a stack trace.
+      render: shell

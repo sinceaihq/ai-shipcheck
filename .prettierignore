@@ -1,0 +1,7 @@
+dist
+action/dist
+coverage
+fixtures
+node_modules
+docs/rules
+*.md

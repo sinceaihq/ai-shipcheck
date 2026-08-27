@@ -1,0 +1,61 @@
+name: Action self-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  clean-project:
+    name: Passes on a clean fixture
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run AI Shipcheck
+        id: shipcheck
+        uses: ./
+        with:
+          path: fixtures/secure-nextjs
+          fail-on: low
+          min-score: 100
+
+      - name: Check the outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ steps.shipcheck.outputs.verdict }}" = "READY"
+          test "${{ steps.shipcheck.outputs.score }}" = "100"
+          test "${{ steps.shipcheck.outputs.critical-count }}" = "0"
+          test "${{ steps.shipcheck.outputs.high-count }}" = "0"
+
+  broken-project:
+    name: Fails on a broken fixture
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run AI Shipcheck (expected to fail the step)
+        id: shipcheck
+        continue-on-error: true
+        uses: ./
+        with:
+          path: fixtures/vulnerable-supabase
+          fail-on: critical
+
+      - name: Check that the step failed and reported findings
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ steps.shipcheck.outcome }}" = "failure"
+          test "${{ steps.shipcheck.outputs.verdict }}" = "NOT READY"
+          test "${{ steps.shipcheck.outputs.critical-count }}" -gt 0
+          test -f shipcheck.sarif

@@ -1,0 +1,5 @@
+{
+  "$schema": "https://raw.githubusercontent.com/sinceaihq/ai-shipcheck/main/schema/shipcheck.config.schema.json",
+  "exclude": ["fixtures/**", "docs/**"],
+  "failOn": "high"
+}

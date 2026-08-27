@@ -1,0 +1,90 @@
+name: New rule proposal
+description: Propose a production-readiness check AI Shipcheck should make.
+labels: [rule-proposal, rules]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A rule earns its place by being **specific**, **statically decidable**
+        and **actionable**. If a check cannot be decided from source with high
+        confidence, it usually belongs in documentation rather than in the rule
+        set. See [docs/adding-a-rule.md](https://github.com/sinceaihq/ai-shipcheck/blob/main/docs/adding-a-rule.md).
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - security
+        - auth
+        - database
+        - reliability
+        - testing
+        - observability
+        - performance
+        - accessibility
+        - ai-cost
+    validations:
+      required: true
+
+  - type: input
+    id: proposed-id
+    attributes:
+      label: Proposed rule id
+      placeholder: security/some-specific-problem
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What goes wrong in production?
+      description: The failure mode, in concrete terms. What breaks, and who notices?
+    validations:
+      required: true
+
+  - type: textarea
+    id: positive
+    attributes:
+      label: Code that should be flagged
+      render: typescript
+    validations:
+      required: true
+
+  - type: textarea
+    id: negative
+    attributes:
+      label: Similar code that must NOT be flagged
+      description: >-
+        The near-miss cases matter as much as the hit. What does a correct
+        implementation of this pattern look like?
+      render: typescript
+    validations:
+      required: true
+
+  - type: textarea
+    id: remediation
+    attributes:
+      label: How should a developer fix it?
+      description: Specific and actionable. "Consider reviewing this" is not a remediation.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Suggested severity
+      options: [critical, high, medium, low, info]
+    validations:
+      required: true
+
+  - type: dropdown
+    id: confidence
+    attributes:
+      label: How confidently can this be decided from source alone?
+      options:
+        - high - the evidence is essentially conclusive
+        - medium - strong signal, but a legitimate design could explain it
+        - low - heuristic, worth surfacing for review
+    validations:
+      required: true

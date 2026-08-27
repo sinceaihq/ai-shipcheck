@@ -1,0 +1,58 @@
+name: False positive
+description: A rule fired on code that is actually fine.
+labels: [false-positive, rules]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        False positives are the most damaging kind of bug in a tool like this:
+        one wrong finding costs more trust than ten right ones earn. These get
+        priority, and every fix ships with a regression test.
+
+  - type: input
+    id: rule-id
+    attributes:
+      label: Rule id
+      description: Shown under each finding, e.g. `auth/unprotected-route-handler`.
+      placeholder: category/rule-name
+    validations:
+      required: true
+
+  - type: textarea
+    id: code
+    attributes:
+      label: The code that triggered it
+      description: >-
+        The smallest snippet that still triggers the finding. Replace any real
+        credentials with obvious placeholders.
+      render: typescript
+    validations:
+      required: true
+
+  - type: textarea
+    id: why-safe
+    attributes:
+      label: Why is this code correct?
+      description: >-
+        What makes this safe? For example: "the auth check is in the shared
+        `withAuth` wrapper", or "this table is deliberately public reference
+        data".
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Framework and project context
+      description: Framework, version, and anything unusual about the layout.
+      placeholder: Next.js 15 App Router, auth handled in middleware.ts
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: AI Shipcheck version
+      placeholder: 0.1.0
+    validations:
+      required: true

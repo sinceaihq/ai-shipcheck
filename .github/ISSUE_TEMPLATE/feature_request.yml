@@ -1,0 +1,37 @@
+name: Feature request
+description: Suggest a capability for AI Shipcheck (not a new rule).
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: For new checks, please use the **New rule proposal** template instead.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the situation you are in, not the solution you have in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like it to do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What have you tried instead?
+      description: Workarounds, other tools, or why the existing options do not fit.
+
+  - type: checkboxes
+    id: principles
+    attributes:
+      label: Does this fit the project's constraints?
+      options:
+        - label: It works without an API key or a signup
+        - label: It does not require uploading source code anywhere
+        - label: It does not require executing code from the scanned repository

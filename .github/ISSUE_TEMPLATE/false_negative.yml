@@ -1,0 +1,35 @@
+name: False negative
+description: A real problem that AI Shipcheck failed to report.
+labels: [false-negative, rules]
+body:
+  - type: input
+    id: rule-id
+    attributes:
+      label: Which rule should have caught this?
+      description: Leave blank if no rule covers it yet - use the rule proposal template for genuinely new checks.
+      placeholder: category/rule-name
+
+  - type: textarea
+    id: code
+    attributes:
+      label: The code that should have been flagged
+      description: Use obvious placeholders in place of any real credentials.
+      render: typescript
+    validations:
+      required: true
+
+  - type: textarea
+    id: why-problem
+    attributes:
+      label: What goes wrong in production?
+      description: The concrete consequence, not just the pattern.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: AI Shipcheck version
+      placeholder: 0.1.0
+    validations:
+      required: true

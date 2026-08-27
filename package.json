@@ -1,0 +1,81 @@
+{
+  "name": "ai-shipcheck",
+  "version": "0.1.0",
+  "description": "Your AI says it's done. Shipcheck tells you if it's ready to ship. Local-first, evidence-backed production-readiness scanner for JavaScript and TypeScript apps.",
+  "keywords": [
+    "production-readiness",
+    "security",
+    "static-analysis",
+    "sarif",
+    "nextjs",
+    "supabase",
+    "linter",
+    "code-review",
+    "ai-generated-code",
+    "cli"
+  ],
+  "homepage": "https://github.com/sinceaihq/ai-shipcheck#readme",
+  "bugs": "https://github.com/sinceaihq/ai-shipcheck/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sinceaihq/ai-shipcheck.git"
+  },
+  "license": "MIT",
+  "author": "Since AI (https://sinceai.ai)",
+  "type": "module",
+  "bin": {
+    "ai-shipcheck": "dist/cli/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "docs/rules",
+    "schema",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:action": "node scripts/build-action.mjs",
+    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\"",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "docs:rules": "node scripts/generate-rule-docs.mjs",
+    "docs:check": "node scripts/generate-rule-docs.mjs --check",
+    "bench": "node scripts/bench.mjs",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm run docs:check && npm run test && npm run build && npm run build:action",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "ignore": "^7.0.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.34.0",
+    "@types/node": "^22.15.0",
+    "@vitest/coverage-v8": "^3.2.4",
+    "esbuild": "^0.25.9",
+    "eslint": "^9.34.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.41.0",
+    "vitest": "^3.2.4"
+  }
+}
