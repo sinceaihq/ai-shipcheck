@@ -111,7 +111,13 @@ export const sarifReporter: Reporter = (result) => {
         automationDetails: {
           id: `ai-shipcheck/${result.schemaVersion}`,
           description: {
-            text: `AI Shipcheck ${result.verdict} - score ${result.score}/100 across ${result.categories.filter((c) => c.status === 'assessed').length} assessed categories.`,
+            text:
+              `AI Shipcheck ${result.verdict} - score ${result.score}/100 across ` +
+              `${result.coverage.checksRun} of ${result.coverage.checksTotal} checks ` +
+              `and ${result.coverage.categoriesAssessed} of ${result.coverage.categoriesTotal} categories.` +
+              (result.stats.truncated
+                ? ' A resource limit stopped the scan before the whole project was read.'
+                : ''),
           },
         },
         columnKind: 'unicodeCodePoints',

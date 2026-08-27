@@ -174,9 +174,19 @@ export interface ProjectProfile {
   readonly hasTests: boolean;
   readonly hasCi: boolean;
   readonly isMonorepo: boolean;
+  /**
+   * Runtime dependencies, unioned across every `package.json` in the
+   * repository. In a single-package project this is simply that project's
+   * dependencies; in a workspace it is the union, because framework-specific
+   * rules must apply to the packages that actually use the framework.
+   */
   readonly dependencies: Readonly<Record<string, string>>;
+  /** Development dependencies, unioned the same way. */
   readonly devDependencies: Readonly<Record<string, string>>;
+  /** Scripts from the root manifest only. */
   readonly scripts: Readonly<Record<string, string>>;
+  /** How many `package.json` files were found and parsed. */
+  readonly manifestCount: number;
 }
 
 /** A framework/platform/service Shipcheck recognised. */
@@ -231,8 +241,40 @@ export interface ScanStats {
   readonly durationMs: number;
   readonly rulesRun: number;
   readonly rulesSkipped: number;
+  /**
+   * True when a resource limit stopped the walk before the tree was
+   * exhausted. A truncated scan has not seen the whole project, so its
+   * verdict must be read as provisional.
+   */
+  readonly truncated: boolean;
+  /** How many files were skipped, by reason. Only non-zero reasons appear. */
+  readonly skippedByReason: Readonly<Record<string, number>>;
   /** Non-fatal problems (unreadable file, malformed JSON, ...). */
   readonly warnings: readonly string[];
+}
+
+/**
+ * What the scan was actually able to look at.
+ *
+ * Reported alongside the score so a number is never read as a claim about the
+ * whole project. These are counts, not a synthesised percentage: "38 of 63
+ * checks ran" is a fact, whereas a "coverage score" would imply a
+ * completeness measure that static analysis cannot support.
+ */
+export interface AssessmentCoverage {
+  /** Checks that produced a pass or fail verdict. */
+  readonly checksRun: number;
+  /** Every check in the catalogue, including those that did not apply. */
+  readonly checksTotal: number;
+  /** Checks that could not be evaluated for this project. */
+  readonly checksUnassessed: number;
+  /** Checks that do not apply to this project at all. */
+  readonly checksNotApplicable: number;
+  /** Checks switched off by configuration. */
+  readonly checksDisabled: number;
+  /** Categories that contributed to the score. */
+  readonly categoriesAssessed: number;
+  readonly categoriesTotal: number;
 }
 
 /** The complete, serialisable result of a scan. */
@@ -249,5 +291,7 @@ export interface ScanResult {
   /** Sentence(s) explaining the verdict, including any forcing blockers. */
   readonly verdictReasons: readonly string[];
   readonly categories: readonly CategoryScore[];
+  /** What the scan was able to assess. Always read the score against this. */
+  readonly coverage: AssessmentCoverage;
   readonly stats: ScanStats;
 }

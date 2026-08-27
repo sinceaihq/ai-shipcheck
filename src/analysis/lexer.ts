@@ -204,7 +204,13 @@ export function lex(src: string): LexResult {
 
   const spans: Span[] = [];
   const strings: StringLiteral[] = [];
-  const lineStarts: number[] = [0];
+
+  // Line starts are computed in a dedicated pass rather than accumulated while
+  // tokenising. The tokeniser jumps over whole constructs - a block comment is
+  // consumed with a single `i = close` - and any newline inside such a jump
+  // used to go uncounted, shifting every subsequent line number earlier. A
+  // separate pass cannot get this wrong, and costs one linear scan.
+  const lineStarts = computeLineStarts(src);
 
   /** Blank out `[from, to)` but keep newlines so offsets/lines stay aligned. */
   const blank = (from: number, to: number, alsoKeepView = false): void => {
@@ -230,7 +236,6 @@ export function lex(src: string): LexResult {
     const ch = src[i]!;
 
     if (ch === '\n') {
-      lineStarts.push(i + 1);
       i++;
       continue;
     }
@@ -370,6 +375,21 @@ export function lex(src: string): LexResult {
     strings,
     lineStarts,
   };
+}
+
+/**
+ * Offsets at which each line begins. `result[0]` is always 0.
+ *
+ * Counts `\n` only: a `\r\n` file yields the same line numbering as a `\n`
+ * file, and a lone `\r` (classic Mac) is treated as ordinary text, which
+ * matches how editors and every other tool report positions.
+ */
+function computeLineStarts(src: string): number[] {
+  const starts: number[] = [0];
+  for (let i = 0; i < src.length; i++) {
+    if (src.charCodeAt(i) === 10) starts.push(i + 1);
+  }
+  return starts;
 }
 
 /**

@@ -523,6 +523,54 @@ describe('hostile input', () => {
     }
   });
 
+  it('handles directories with spaces and non-ASCII names', async () => {
+    const dir = await makeProject({
+      'package.json': NEXT_PKG,
+      'src/weird dir name/a.ts': 'export const r = eval("1");',
+      'src/\u00fcn\u00efc\u00f8d\u00e9 \u{1F680}/\u0444\u0430\u0439\u043b.ts':
+        'export const r2 = eval("2");',
+    });
+    try {
+      const result = await scanDirectory(dir);
+      const files = result.findings.flatMap((f) => f.evidence.map((e) => e.file));
+      expect(files.some((f) => f.includes('weird dir name'))).toBe(true);
+      for (const file of files) {
+        expect(file).not.toContain('\\');
+        expect(file.startsWith('/')).toBe(false);
+      }
+    } finally {
+      await removeProject(dir);
+    }
+  });
+
+  it('escapes report-breaking characters rather than emitting them raw', async () => {
+    // A filename or snippet is attacker-controlled when scanning an untrusted
+    // repository. Neither may break out of a Markdown table, a SARIF string,
+    // or a GitHub workflow command.
+    const { getReporter } = await import('../../src/reporters/index.js');
+    const dir = await makeProject({
+      'package.json': NEXT_PKG,
+      'src/pipe|and`tick.ts': 'export const r = eval("1");',
+      'src/newline-ish.ts': 'const evil = "]}\\n::error::injected"; export const r2 = eval(evil);',
+    });
+    try {
+      const result = await scanDirectory(dir);
+      const options = { color: false, quiet: false, root: dir };
+
+      const markdown = getReporter('markdown')(result, options);
+      for (const line of markdown.split('\n')) {
+        if (!line.startsWith('| ')) continue;
+        for (const cell of line.slice(2, -2).split(' | ')) expect(cell).not.toContain('|');
+      }
+
+      const sarif = JSON.parse(getReporter('sarif')(result, options)) as unknown;
+      expect(sarif).toBeTruthy();
+      expect(getReporter('json')(result, options)).toContain('"schemaVersion"');
+    } finally {
+      await removeProject(dir);
+    }
+  });
+
   it('scans a deeply nested path without stack overflow', async () => {
     const deep = 'a/'.repeat(15);
     const dir = await makeProject({

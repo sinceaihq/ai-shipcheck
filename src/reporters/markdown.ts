@@ -12,9 +12,26 @@ export const markdownReporter: Reporter = (result) => {
 
   lines.push('# AI Shipcheck report');
   lines.push('');
-  lines.push(`**${verdictEmoji} ${result.verdict}** — score **${result.score}/100**`);
+  lines.push(
+    `**${verdictEmoji} ${result.verdict}** — score **${result.score}/100** across ${result.coverage.checksRun} assessed checks`,
+  );
   lines.push('');
   for (const reason of result.verdictReasons) lines.push(`- ${escapeMd(reason)}`);
+  lines.push('');
+
+  if (result.stats.truncated) {
+    lines.push(
+      '> **Partial scan.** A resource limit stopped the scan before the whole project was read, ' +
+        'so this verdict covers only what was scanned.',
+    );
+    lines.push('');
+  }
+
+  lines.push(
+    `Assessed ${result.coverage.checksRun} of ${result.coverage.checksTotal} checks across ` +
+      `${result.coverage.categoriesAssessed} of ${result.coverage.categoriesTotal} categories ` +
+      `(${result.coverage.checksNotApplicable} not applicable, ${result.coverage.checksUnassessed} not assessed).`,
+  );
   lines.push('');
 
   lines.push('## Summary');

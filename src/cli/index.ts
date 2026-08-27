@@ -120,7 +120,27 @@ function isProcessEntryPoint(): boolean {
   }
 }
 
+/**
+ * Stop a closed downstream pipe from crashing the process.
+ *
+ * `ai-shipcheck . --format json | head` closes stdout while we are still
+ * writing to it. Without this, Node raises an unhandled EPIPE and prints a
+ * stack trace over the user's terminal - which looks like the scanner
+ * crashed when in fact it did its job and the reader stopped listening.
+ */
+function ignoreBrokenPipe(stream: NodeJS.WriteStream): void {
+  stream.on('error', (error: NodeJS.ErrnoException) => {
+    if (error.code === 'EPIPE' || error.code === 'ERR_STREAM_DESTROYED') {
+      process.exit(typeof process.exitCode === 'number' ? process.exitCode : 0);
+    }
+    throw error;
+  });
+}
+
 if (isProcessEntryPoint()) {
+  ignoreBrokenPipe(process.stdout);
+  ignoreBrokenPipe(process.stderr);
+
   runCli(process.argv.slice(2))
     .then((code) => {
       process.exitCode = code;

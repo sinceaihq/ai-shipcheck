@@ -30,6 +30,12 @@ export const prettyReporter: Reporter = (result, options) => {
 
   if (!options.quiet) {
     out.push(profileLine(result, c));
+    out.push(coverageLine(result, c));
+    out.push('');
+  }
+
+  if (result.stats.truncated) {
+    out.push(truncationBanner(result, c, width));
     out.push('');
   }
 
@@ -84,7 +90,8 @@ export const prettyReporter: Reporter = (result, options) => {
   out.push(
     c.dim(
       `  Scanned ${result.stats.filesScanned} files in ${formatDuration(result.stats.durationMs)} · ` +
-        `${result.stats.rulesRun} checks run, ${result.stats.rulesSkipped} not applicable · ai-shipcheck v${result.tool.version}`,
+        `${result.coverage.checksRun} checks run, ${result.coverage.checksNotApplicable} not applicable, ` +
+        `${result.coverage.checksUnassessed} not assessed · ai-shipcheck v${result.tool.version}`,
     ),
   );
   out.push(c.dim('  Static analysis of source code - not a security certification.'));
@@ -112,7 +119,13 @@ function header(result: ScanResult, c: Palette, width: number): string {
         ? c.yellow(score)
         : c.red(score);
 
-  const title = `  ${badge}  ${c.bold(scoreColored)} ${c.dim(assessed ? 'production readiness' : 'nothing assessed')}`;
+  // The subtitle names the scope the number covers. "100/100" on its own
+  // reads as a clean bill of health; "100/100 across 38 assessed checks" is
+  // the same number with its meaning attached.
+  const subtitle = assessed
+    ? `across ${result.coverage.checksRun} assessed ${result.coverage.checksRun === 1 ? 'check' : 'checks'}`
+    : 'nothing assessed';
+  const title = `  ${badge}  ${c.bold(scoreColored)} ${c.dim(subtitle)}`;
   const name = result.profile.name ?? '';
   const right = name.length > 0 ? c.dim(name) : '';
   const pad = Math.max(1, width - visibleLength(title) - visibleLength(right) - 2);
@@ -136,6 +149,44 @@ function profileLine(result: ScanResult, c: Palette): string {
   if (result.profile.hasTests) parts.push('tests present');
   if (result.profile.hasCi) parts.push('CI configured');
   return `  ${c.dim('Detected:')} ${c.dim(parts.length > 0 ? parts.join(' · ') : 'no frameworks recognised')}`;
+}
+
+/** One factual line about what the scan could and could not look at. */
+function coverageLine(result: ScanResult, c: Palette): string {
+  const { coverage, stats } = result;
+  const parts = [
+    `${coverage.checksRun} of ${coverage.checksTotal} checks run`,
+    `${coverage.categoriesAssessed}/${coverage.categoriesTotal} categories scored`,
+    `${stats.filesScanned} ${stats.filesScanned === 1 ? 'file' : 'files'}`,
+  ];
+  if (coverage.checksUnassessed > 0) parts.push(`${coverage.checksUnassessed} not assessed`);
+  if (coverage.checksDisabled > 0) parts.push(`${coverage.checksDisabled} disabled`);
+  return `  ${c.dim('Assessed:')} ${c.dim(parts.join(' · '))}`;
+}
+
+/**
+ * A scan that hit a resource limit has not seen the whole project. Saying so
+ * loudly matters more than the score does: a partial scan that reports READY
+ * is the most misleading output this tool can produce.
+ */
+function truncationBanner(result: ScanResult, c: Palette, width: number): string {
+  const label = c.bold(c.bgYellow(c.black(' PARTIAL SCAN ')));
+  // Only reasons that mean "content was not read" belong here. A refused
+  // symlink or an ignored build directory is the scanner working correctly,
+  // not a gap in coverage, and listing those would cry wolf.
+  const LIMIT_REASONS = ['depth-limit', 'file-limit', 'byte-limit', 'too-large', 'unreadable'];
+  const skipped = Object.entries(result.stats.skippedByReason)
+    .filter(([reason]) => LIMIT_REASONS.includes(reason))
+    .map(([reason, count]) => `${count} ${reason}`)
+    .join(', ');
+  const body = wrap(
+    `A resource limit stopped the scan before the whole project was read${skipped.length > 0 ? ` (${skipped})` : ''}. This verdict covers only what was scanned. Raise the limits in shipcheck.config.json, or exclude the directory responsible, and scan again.`,
+    width - 6,
+    '    ',
+    c.reset,
+  );
+  return `  ${label}
+    ${body}`;
 }
 
 function categoryTable(categories: readonly CategoryScore[], c: Palette): string {

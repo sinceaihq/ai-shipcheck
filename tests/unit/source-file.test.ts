@@ -52,6 +52,43 @@ describe('SourceFile', () => {
     expect(body?.text).toContain('return 1;');
   });
 
+  it('reports the line a match is really on, after block comments', () => {
+    const file = sourceFile(
+      'a.ts',
+      [
+        '/**',
+        ' * A licence header.',
+        ' * Spanning several lines.',
+        ' */',
+        '',
+        'const r = eval("1");',
+      ].join('\n'),
+    );
+    const match = [...file.matches(/eval\s*\(/g)][0];
+    expect(match).toBeDefined();
+    const evidence = file.evidenceAt(match!.index);
+    expect(evidence.line).toBe(6);
+    expect(file.lineText(evidence.line)).toContain('eval');
+  });
+
+  it('produces evidence whose snippet is genuinely on the reported line', () => {
+    const source = [
+      '/* header',
+      '   continued */',
+      'import x from "y";',
+      '',
+      '/** doc */',
+      'export function f() {',
+      '  return eval("2");',
+      '}',
+    ].join('\n');
+    const file = sourceFile('a.ts', source);
+    for (const match of file.matches(/eval\s*\(/g)) {
+      const evidence = file.evidenceAt(match.index);
+      expect(source.split('\n')[evidence.line - 1]).toContain('eval');
+    }
+  });
+
   it('masks credentials in evidence snippets', () => {
     const file = sourceFile('a.ts', 'const apiKey = "sk-ant-SHIPCHECKFIXTUREKEY000000000000";');
     const evidence = file.evidenceAt(0);

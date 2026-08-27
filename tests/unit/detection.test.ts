@@ -125,6 +125,38 @@ describe('detectFrameworks', () => {
   });
 });
 
+describe('monorepo detection', () => {
+  it('detects frameworks declared in workspace packages, not just the root', async () => {
+    // A monorepo root manifest usually declares no framework at all. Detecting
+    // from it alone finds nothing, every framework rule is skipped, and the
+    // report looks confident while having checked almost nothing.
+    const { makeProject, removeProject, indexDirectory } = await import('../helpers/project.js');
+    const dir = await makeProject({
+      'package.json': JSON.stringify({ name: 'root', workspaces: ['packages/*'] }),
+      'packages/web/package.json': JSON.stringify({
+        name: 'web',
+        dependencies: { next: '^15.0.0', react: '^19.0.0' },
+      }),
+      'packages/web/app/page.tsx': 'export default () => <p>hi</p>;',
+      'packages/api/package.json': JSON.stringify({
+        name: 'api',
+        dependencies: { express: '^4.21.2' },
+      }),
+    });
+    try {
+      const index = await indexDirectory(dir);
+      const ids = index.profile.frameworks.map((f) => f.id);
+      expect(ids).toContain('next');
+      expect(ids).toContain('react');
+      expect(ids).toContain('express');
+      expect(index.profile.manifestCount).toBe(3);
+      expect(index.hasDependency('express')).toBe(true);
+    } finally {
+      await removeProject(dir);
+    }
+  });
+});
+
 describe('parsePackageJson', () => {
   it('parses the fields Shipcheck uses', () => {
     const result = parsePackageJson(

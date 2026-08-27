@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareFindings, resolveRules, runScan } from '../../src/core/engine.js';
+import { compareFindings, dedupeFindings, resolveRules, runScan } from '../../src/core/engine.js';
 import { RuleRegistry } from '../../src/core/registry.js';
 import { defineRule } from '../../src/core/define-rule.js';
 import { DEFAULT_CONFIG } from '../../src/config/schema.js';
@@ -258,6 +258,90 @@ async function scanTwice(dir: string): Promise<string> {
     score: result.score,
   });
 }
+
+describe('dedupeFindings', () => {
+  const base: Finding = {
+    ruleId: 'ai-cost/missing-token-limit',
+    category: 'ai-cost',
+    title: 't',
+    severity: 'medium',
+    confidence: 'medium',
+    explanation: 'e',
+    remediation: 'r',
+    evidence: [{ file: 'a.ts', line: 4, column: 9, snippet: 'x' }],
+  };
+
+  it('collapses the same rule reported twice at the same location', () => {
+    // Several rules match through a list of alternatives, and one call site
+    // can satisfy two of them. A duplicate would double-count against the score.
+    expect(dedupeFindings([base, { ...base }])).toHaveLength(1);
+  });
+
+  it('keeps distinct locations', () => {
+    const other = { ...base, evidence: [{ file: 'a.ts', line: 9, column: 1, snippet: 'y' }] };
+    expect(dedupeFindings([base, other])).toHaveLength(2);
+  });
+
+  it('keeps distinct rules at the same location', () => {
+    expect(dedupeFindings([base, { ...base, ruleId: 'ai-cost/missing-llm-timeout' }])).toHaveLength(
+      2,
+    );
+  });
+
+  it('distinguishes evidence-free findings by title', () => {
+    const a = { ...base, evidence: [] };
+    const b = { ...a, title: 'different' };
+    expect(dedupeFindings([a, { ...a }, b])).toHaveLength(2);
+  });
+});
+
+describe('scan coverage', () => {
+  it('reports what could and could not be assessed', async () => {
+    const dir = await makeProject({
+      'package.json': '{"name":"x","dependencies":{"next":"^15.0.0"}}',
+      'app/page.tsx': 'export default () => <p>hi</p>;',
+    });
+    try {
+      const { createDefaultRegistry } = await import('../../src/rules/index.js');
+      const result = await runScan({
+        root: dir,
+        config: DEFAULT_CONFIG,
+        registry: createDefaultRegistry(),
+      });
+      expect(result.coverage.checksTotal).toBe(result.checks.length);
+      expect(result.coverage.checksRun).toBeGreaterThan(0);
+      expect(
+        result.coverage.checksRun +
+          result.coverage.checksUnassessed +
+          result.coverage.checksNotApplicable +
+          result.coverage.checksDisabled,
+      ).toBe(result.coverage.checksTotal);
+      expect(result.coverage.categoriesTotal).toBe(9);
+      expect(result.stats.truncated).toBe(false);
+    } finally {
+      await removeProject(dir);
+    }
+  });
+
+  it('reports truncation and the reasons when a limit stops the walk', async () => {
+    const files: Record<string, string> = { 'package.json': '{"name":"x"}' };
+    for (let i = 0; i < 12; i++) files[`src/f${i}.ts`] = `export const a${i} = 1;`;
+    const dir = await makeProject(files);
+    try {
+      const { createDefaultRegistry } = await import('../../src/rules/index.js');
+      const result = await runScan({
+        root: dir,
+        config: { ...DEFAULT_CONFIG, limits: { maxFiles: 3 } },
+        registry: createDefaultRegistry(),
+      });
+      expect(result.stats.truncated).toBe(true);
+      expect(result.stats.skippedByReason['file-limit']).toBeGreaterThan(0);
+      expect(result.stats.warnings.join(' ')).toContain('resource limit');
+    } finally {
+      await removeProject(dir);
+    }
+  });
+});
 
 describe('compareFindings', () => {
   const base: Finding = {

@@ -112,6 +112,36 @@ describe('lex', () => {
     expect(result.masked).toHaveLength(src.length);
   });
 
+  it('numbers lines correctly after a multi-line block comment', () => {
+    // Found by scanning real repositories: the tokeniser consumed a block
+    // comment in one jump, so newlines inside it went uncounted and every
+    // line number after any JSDoc or licence header was reported too low.
+    const src = 'const a = 1;\n/**\n * one\n * two\n */\nconst target = 2;\n';
+    const result = lex(src);
+    expect(result.lineStarts).toHaveLength(7);
+    const offset = src.indexOf('target');
+    const line = result.lineStarts.filter((start) => start <= offset).length;
+    expect(line).toBe(6);
+  });
+
+  it('numbers lines correctly across every construct that spans newlines', () => {
+    const cases: [string, string][] = [
+      ['block comment', 'a;\n/* x\n y */\nTARGET;\n'],
+      ['template literal', 'const t = `a\nb\nc`;\nTARGET;\n'],
+      ['crlf block comment', 'a;\r\n/* x\r\n y */\r\nTARGET;\r\n'],
+      ['string line continuation', 'const s = "a\\\nb";\nTARGET;\n'],
+      ['jsx text', 'const el = <p>\n  hello\n</p>;\nTARGET;\n'],
+      ['regex literal', 'const re = /ab+c/g;\n\nTARGET;\n'],
+    ];
+    for (const [label, src] of cases) {
+      const result = lex(src);
+      const offset = src.indexOf('TARGET');
+      const reported = result.lineStarts.filter((start) => start <= offset).length;
+      const expected = src.slice(0, offset).split('\n').length;
+      expect(reported, label).toBe(expected);
+    }
+  });
+
   it('is linear on pathological input', () => {
     const src = `${'"'.repeat(2000)}\n${'`'.repeat(200)}\n${'/'.repeat(2000)}`;
     const started = performance.now();

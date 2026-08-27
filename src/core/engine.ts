@@ -1,7 +1,9 @@
 import { performance } from 'node:perf_hooks';
 import {
+  CATEGORIES,
   SCHEMA_VERSION,
   SEVERITIES,
+  type AssessmentCoverage,
   type CheckResult,
   type Finding,
   type ScanResult,
@@ -189,14 +191,15 @@ export async function runScan(options: RunScanOptions): Promise<ScanResult> {
     }
 
     rulesRun++;
-    findings.push(...collected);
+    const deduped = dedupeFindings(collected);
+    findings.push(...deduped);
 
-    if (collected.length > 0) {
+    if (deduped.length > 0) {
       checks.push({
         ruleId: rule.meta.id,
         category: rule.meta.category,
         status: 'fail',
-        findingCount: collected.length,
+        findingCount: deduped.length,
       });
     } else if (unassessedReason !== null) {
       rulesRun--;
@@ -235,6 +238,7 @@ export async function runScan(options: RunScanOptions): Promise<ScanResult> {
     verdict,
     verdictReasons,
     categories,
+    coverage: summariseCoverage(checks, categories),
     stats: {
       filesScanned: built.filesScanned,
       filesSkipped: built.filesSkipped,
@@ -242,9 +246,42 @@ export async function runScan(options: RunScanOptions): Promise<ScanResult> {
       durationMs: Math.round(performance.now() - started),
       rulesRun,
       rulesSkipped,
+      truncated: built.truncated,
+      skippedByReason: countByReason(built.skipped),
       warnings,
     },
   };
+}
+
+/**
+ * Summarise what the scan was able to assess.
+ *
+ * These are counts rather than a percentage on purpose. "38 of 63 checks ran"
+ * is a verifiable statement; a coverage percentage would imply a measure of
+ * completeness that static analysis of source code cannot support.
+ */
+function summariseCoverage(
+  checks: readonly CheckResult[],
+  categories: readonly ScanResult['categories'][number][],
+): AssessmentCoverage {
+  return {
+    checksRun: checks.filter((c) => c.status === 'pass' || c.status === 'fail').length,
+    checksTotal: checks.length,
+    checksUnassessed: checks.filter((c) => c.status === 'unassessed').length,
+    checksNotApplicable: checks.filter((c) => c.status === 'not-applicable').length,
+    checksDisabled: checks.filter((c) => c.status === 'disabled').length,
+    categoriesAssessed: categories.filter((c) => c.status === 'assessed').length,
+    categoriesTotal: CATEGORIES.length,
+  };
+}
+
+/** Tally skipped files by reason, omitting reasons that did not occur. */
+function countByReason(skipped: readonly { reason: string }[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const entry of skipped) {
+    counts[entry.reason] = (counts[entry.reason] ?? 0) + 1;
+  }
+  return Object.fromEntries(Object.entries(counts).sort(([a], [b]) => a.localeCompare(b)));
 }
 
 function checkFrameworkGate(rule: Rule, index: ProjectIndex): string | null {
@@ -280,6 +317,31 @@ function materialise(rule: Rule, severity: Finding['severity'], finding: RuleFin
   const blocker = finding.blocker ?? rule.meta.blocker;
   if (blocker === true) result.blocker = true;
   return result;
+}
+
+/**
+ * Collapse findings a rule reported more than once at the same place.
+ *
+ * Several rules match through a list of alternative patterns, and a single
+ * call site can satisfy two of them - `chat.completions.create` matches both
+ * the chat-specific and the generic completions pattern. Deduplicating
+ * centrally means no rule has to remember, and a duplicate can never
+ * double-count against the score.
+ */
+export function dedupeFindings(findings: readonly Finding[]): Finding[] {
+  const seen = new Set<string>();
+  const out: Finding[] = [];
+  for (const finding of findings) {
+    const first = finding.evidence[0];
+    const key =
+      first === undefined
+        ? `${finding.ruleId}|${finding.title}`
+        : `${finding.ruleId}|${first.file}|${first.line}|${first.column}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(finding);
+  }
+  return out;
 }
 
 /** Deterministic ordering: worst first, then stable by rule and location. */

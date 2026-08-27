@@ -91,9 +91,35 @@ describe('the built binary', () => {
     }
   });
 
+  it('does not crash when the reader closes the pipe', async () => {
+    // `ai-shipcheck . --format json | head` closes stdout mid-write. An
+    // unhandled EPIPE prints a Node stack trace over the user's terminal and
+    // makes a working scan look like a crash.
+    const { execFile: rawExecFile } = await import('node:child_process');
+    const result = await new Promise<{ code: number; stderr: string }>((resolve) => {
+      const child = rawExecFile(
+        process.execPath,
+        [CLI, path.join(FIXTURES, 'vulnerable-nextjs'), '--format', 'json'],
+        { env: { ...process.env, NO_COLOR: '1' }, maxBuffer: 32 * 1024 * 1024 },
+        () => undefined,
+      );
+      let stderr = '';
+      child.stderr?.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString();
+      });
+      // Read one chunk, then destroy the pipe the way `head` does.
+      child.stdout?.once('data', () => child.stdout?.destroy());
+      child.on('close', (code) => resolve({ code: code ?? 0, stderr }));
+    });
+
+    expect(result.stderr).not.toContain('EPIPE');
+    expect(result.stderr).not.toContain('Unhandled');
+    expect(result.code).toBeLessThanOrEqual(1);
+  });
+
   it('scans the current directory by default', async () => {
     const { stdout, code } = await shipcheck();
     expect(code).toBeLessThanOrEqual(1);
-    expect(stdout).toMatch(/production readiness|nothing assessed/);
+    expect(stdout).toMatch(/assessed check|nothing assessed/);
   });
 });

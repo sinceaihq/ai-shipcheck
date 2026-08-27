@@ -31,6 +31,8 @@ export interface BuildIndexResult {
   readonly bytesScanned: number;
   readonly warnings: readonly string[];
   readonly skipped: readonly WalkSkip[];
+  /** True when a resource limit stopped the walk early. */
+  readonly truncated: boolean;
 }
 
 /** Decide whether a walked path is worth reading into memory. */
@@ -123,16 +125,27 @@ export async function buildIndex(options: BuildIndexOptions): Promise<BuildIndex
 
   files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 
-  const pkgFile = files.find((f) => f.path === 'package.json');
+  // Every manifest in the tree is parsed, not just the root one. In a
+  // monorepo the root package.json usually declares no framework at all, so
+  // detecting from it alone finds nothing and every framework-specific rule is
+  // skipped - producing a confident-looking report that checked almost
+  // nothing. node_modules is already excluded by the walker, so the manifests
+  // found here are the repository's own workspace packages.
+  const manifestFiles = files.filter(
+    (f) => f.path === 'package.json' || f.path.endsWith('/package.json'),
+  );
+  const manifests: PackageJson[] = [];
   let packageJson: PackageJson | null = null;
-  if (pkgFile !== undefined) {
-    const parsed = parsePackageJson(pkgFile.content, 'package.json');
-    packageJson = parsed.data;
+  for (const file of manifestFiles) {
+    const parsed = parsePackageJson(file.content, file.path);
     if (parsed.warning !== null) warnings.push(parsed.warning);
+    if (parsed.data === null) continue;
+    manifests.push(parsed.data);
+    if (file.path === 'package.json') packageJson = parsed.data;
   }
 
   const allPaths = [...walked.files.map((f) => f.path), ...skipped.map((s) => s.path)].sort();
-  const profile = await buildProfile({ root, packageJson, files, allPaths });
+  const profile = await buildProfile({ root, packageJson, manifests, files, allPaths });
 
   if (packageJson === null && files.every((f) => !SOURCE_EXTENSIONS.includes(f.ext))) {
     warnings.push(
@@ -143,6 +156,14 @@ export async function buildIndex(options: BuildIndexOptions): Promise<BuildIndex
 
   const index = new ProjectIndex({ root, profile, files, allPaths, packageJson, warnings });
 
+  if (walked.truncated) {
+    warnings.push(
+      'A resource limit stopped the scan before the whole project was read. ' +
+        'The report below covers only what was scanned - raise the limits in shipcheck.config.json, ' +
+        'or exclude the directory responsible, and scan again.',
+    );
+  }
+
   return {
     index,
     filesScanned: files.length,
@@ -150,6 +171,7 @@ export async function buildIndex(options: BuildIndexOptions): Promise<BuildIndex
     bytesScanned,
     warnings,
     skipped,
+    truncated: walked.truncated,
   };
 }
 
@@ -175,11 +197,13 @@ async function detectPackageManager(root: string): Promise<ProjectProfile['packa
 async function buildProfile(input: {
   root: string;
   packageJson: PackageJson | null;
+  manifests: readonly PackageJson[];
   files: readonly SourceFile[];
   allPaths: readonly string[];
 }): Promise<ProjectProfile> {
-  const { root, packageJson, files, allPaths } = input;
-  const frameworks = detectFrameworks({ pkg: packageJson, paths: allPaths });
+  const { root, packageJson, manifests, files, allPaths } = input;
+  const merged = mergeManifests(manifests);
+  const frameworks = detectFrameworks({ pkg: merged, paths: allPaths });
 
   const languages: ('typescript' | 'javascript')[] = [];
   if (files.some((f) => f.isTypeScript) || allPaths.includes('tsconfig.json'))
@@ -219,8 +243,28 @@ async function buildProfile(input: {
     hasTests,
     hasCi,
     isMonorepo,
-    dependencies: packageJson?.dependencies ?? {},
-    devDependencies: packageJson?.devDependencies ?? {},
+    dependencies: merged.dependencies ?? {},
+    devDependencies: merged.devDependencies ?? {},
     scripts: packageJson?.scripts ?? {},
+    manifestCount: manifests.length,
   };
+}
+
+/**
+ * Union the dependency sets of every manifest in the repository.
+ *
+ * Used for framework detection and rule applicability. Scripts deliberately
+ * stay the root manifest's, because "the command you run to test this
+ * project" is a root-level concept in every workspace layout.
+ */
+function mergeManifests(manifests: readonly PackageJson[]): PackageJson {
+  const dependencies: Record<string, string> = {};
+  const devDependencies: Record<string, string> = {};
+  const peerDependencies: Record<string, string> = {};
+  for (const manifest of manifests) {
+    Object.assign(dependencies, manifest.dependencies ?? {});
+    Object.assign(devDependencies, manifest.devDependencies ?? {});
+    Object.assign(peerDependencies, manifest.peerDependencies ?? {});
+  }
+  return { dependencies, devDependencies, peerDependencies };
 }
