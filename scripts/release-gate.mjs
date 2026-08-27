@@ -59,8 +59,19 @@ function sh(command, args, options = {}) {
   });
 }
 
+/**
+ * Run an npm script.
+ *
+ * npm is `npm.cmd` on Windows and Node's `execFile` cannot resolve that
+ * without a shell, so the CLI entry point is invoked through Node directly
+ * when `npm_execpath` tells us where it is.
+ */
 function npm(script) {
-  return sh('npm', ['run', script]);
+  const execpath = process.env.npm_execpath;
+  if (execpath !== undefined && execpath.endsWith('.js')) {
+    return sh(process.execPath, [execpath, 'run', script]);
+  }
+  return sh(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', script]);
 }
 
 function scan(fixture, extra = []) {
@@ -130,7 +141,12 @@ gate('no real credential-shaped strings are committed', () => {
 });
 
 console.log('\nBuild and static checks');
-gate('clean install from the lockfile', () => sh('npm', ['ci']) && 'npm ci');
+gate('clean install from the lockfile', () => {
+  const execpath = process.env.npm_execpath;
+  if (execpath !== undefined && execpath.endsWith('.js')) sh(process.execPath, [execpath, 'ci']);
+  else sh(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['ci']);
+  return 'npm ci';
+});
 gate('format', () => npm('format:check'));
 gate('lint', () => npm('lint'));
 gate('typecheck', () => npm('typecheck'));

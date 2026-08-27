@@ -24,6 +24,26 @@ import { promisify } from 'node:util';
 
 const run = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+/** Run a command, capturing output, with the repository as the cwd by default. */
+function sh(command, args, options = {}) {
+  return execFileSync(command, args, {
+    cwd: root,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+    ...options,
+  });
+}
+
+/** Run an npm command (not a script) the same way. */
+function npmCommand(args, options = {}) {
+  const execpath = process.env.npm_execpath;
+  if (execpath !== undefined && execpath.endsWith('.js')) {
+    return sh(process.execPath, [execpath, ...args], options);
+  }
+  return sh(process.platform === 'win32' ? 'npm.cmd' : 'npm', args, options);
+}
+
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
 
 let failures = 0;
@@ -69,11 +89,7 @@ check('has no dependency on itself', pkg.dependencies?.['ai-shipcheck'] === unde
 console.log('\nTarball contents\n');
 // `--ignore-scripts` because dist/ was just built and the prepack hook writes
 // its own output to stdout, which would otherwise be mixed into the JSON.
-const packOutput = execFileSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
-  cwd: root,
-  encoding: 'utf8',
-  maxBuffer: 32 * 1024 * 1024,
-});
+const packOutput = npmCommand(['pack', '--dry-run', '--json', '--ignore-scripts']);
 const [packed] = JSON.parse(packOutput.slice(packOutput.indexOf('[')));
 const entries = packed.files.map((f) => f.path);
 
@@ -108,18 +124,15 @@ const work = fs.mkdtempSync(path.join(os.tmpdir(), 'shipcheck-verify-'));
 const consumer = path.join(work, 'consumer');
 fs.mkdirSync(consumer, { recursive: true });
 
-execFileSync('npm', ['pack', '--pack-destination', work, '--ignore-scripts'], {
-  cwd: root,
-  stdio: 'pipe',
-});
+npmCommand(['pack', '--pack-destination', work, '--ignore-scripts'], { stdio: 'pipe' });
 const tarball = fs.readdirSync(work).find((f) => f.endsWith('.tgz'));
 if (tarball === undefined) {
   console.error('npm pack produced no tarball.');
   process.exit(1);
 }
 
-execFileSync('npm', ['init', '-y'], { cwd: consumer, stdio: 'pipe' });
-execFileSync('npm', ['install', path.join(work, tarball), '--no-audit', '--no-fund'], {
+npmCommand(['init', '-y'], { cwd: consumer, stdio: 'pipe' });
+npmCommand(['install', path.join(work, tarball), '--no-audit', '--no-fund'], {
   cwd: consumer,
   stdio: 'pipe',
 });

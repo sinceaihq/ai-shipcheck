@@ -550,7 +550,10 @@ describe('hostile input', () => {
     const { getReporter } = await import('../../src/reporters/index.js');
     const dir = await makeProject({
       'package.json': NEXT_PKG,
-      'src/pipe|and`tick.ts': 'export const r = eval("1");',
+      // Windows forbids | * ? " < > in filenames, so the hostile characters
+      // here are the ones that are legal on every platform and still break a
+      // Markdown table or a SARIF string if they are not escaped.
+      'src/tick`and[brackets](parens).ts': 'export const r = eval("1");',
       'src/newline-ish.ts': 'const evil = "]}\\n::error::injected"; export const r2 = eval(evil);',
     });
     try {

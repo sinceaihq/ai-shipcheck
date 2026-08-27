@@ -27,6 +27,38 @@ describe('path helpers', () => {
     expect(isInside(root, path.resolve('/tmp/project-other/file.ts'))).toBe(false);
   });
 
+  it('every test fixture filename is creatable on Windows', async () => {
+    // Windows forbids | * ? " < > : in filenames. A test that creates one
+    // passes on Linux and macOS and fails the whole Windows matrix, which is
+    // an expensive way to find out.
+    const fs = await import('node:fs/promises');
+    const url = await import('node:url');
+    const testsDir = path.resolve(url.fileURLToPath(import.meta.url), '..', '..');
+    const illegal = /[|*?"<>]|:(?!\\\\)/;
+    const offenders: string[] = [];
+
+    async function walk(dir: string): Promise<void> {
+      for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          await walk(full);
+          continue;
+        }
+        if (!full.endsWith('.ts')) continue;
+        const content = await fs.readFile(full, 'utf8');
+        // Filenames appear as object keys in makeProject({ ... }) calls.
+        for (const match of content.matchAll(/'([\w./ -]*[^'\n]*\.tsx?)':/g)) {
+          if (illegal.test(match[1] ?? '')) {
+            offenders.push(`${path.relative(testsDir, full)}: ${match[1]}`);
+          }
+        }
+      }
+    }
+    await walk(testsDir);
+
+    expect(offenders, 'filenames that cannot be created on Windows').toEqual([]);
+  });
+
   it('lowercases extensions', () => {
     expect(extname('App.TSX')).toBe('.tsx');
     expect(extname('Dockerfile')).toBe('');
