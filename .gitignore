@@ -21,3 +21,7 @@ coverage/
 bench/results/
 *.tgz
 shipcheck.sarif
+
+# Scratch directories used by the package-integrity workflow.
+/.pack/
+/consumer/
