@@ -137,8 +137,33 @@ npmCommand(['install', path.join(work, tarball), '--no-audit', '--no-fund'], {
   stdio: 'pipe',
 });
 
-const binary = path.join(consumer, 'node_modules', '.bin', 'ai-shipcheck');
-check('installs a binary at node_modules/.bin', fs.existsSync(binary));
+// npm writes three shims on Windows (`ai-shipcheck`, `.cmd`, `.ps1`) and a
+// single symlink elsewhere. The extensionless file exists on both, but only
+// the POSIX one is directly executable: Node refuses to spawn a `.cmd` without
+// a shell, and shell quoting breaks the path-with-spaces case below. So the
+// shim's existence is asserted on every platform, the shim itself is exercised
+// directly on Windows, and the rest of the suite drives the installed entry
+// point that the shim ultimately runs.
+const shim = path.join(consumer, 'node_modules', '.bin', 'ai-shipcheck');
+const windowsShim = `${shim}.cmd`;
+check(
+  'installs a binary at node_modules/.bin',
+  fs.existsSync(shim) && (process.platform !== 'win32' || fs.existsSync(windowsShim)),
+);
+
+const installedEntry = path.join(
+  consumer,
+  'node_modules',
+  'ai-shipcheck',
+  'dist',
+  'cli',
+  'index.js',
+);
+check('the installed package exposes its CLI entry point', fs.existsSync(installedEntry));
+
+/** How to invoke the installed CLI on this platform. */
+const [cliCommand, cliPrefix] =
+  process.platform === 'win32' ? [process.execPath, [installedEntry]] : [shim, []];
 
 /**
  * Invoke the installed CLI.
@@ -155,7 +180,7 @@ async function cli(args, options = {}) {
     npm_config_offline: 'true',
   };
   try {
-    const { stdout, stderr } = await run(binary, args, {
+    const { stdout, stderr } = await run(cliCommand, [...cliPrefix, ...args], {
       cwd: options.cwd ?? consumer,
       env,
       maxBuffer: 64 * 1024 * 1024,
@@ -177,6 +202,22 @@ check(
   version.stdout.trim() === pkg.version,
   version.stdout.trim(),
 );
+
+if (process.platform === 'win32') {
+  // The .cmd shim is what `npx ai-shipcheck` actually executes on Windows, so
+  // it is worth one direct check even though the rest of the suite drives the
+  // entry point. cmd.exe is used because Node will not spawn a .cmd itself.
+  let shimOutput = '';
+  try {
+    shimOutput = execFileSync('cmd.exe', ['/c', windowsShim, '--version'], {
+      cwd: consumer,
+      encoding: 'utf8',
+    });
+  } catch (error) {
+    shimOutput = String(error.stdout ?? '');
+  }
+  check('the Windows .cmd shim runs the CLI', shimOutput.trim() === pkg.version, shimOutput.trim());
+}
 
 const help = await cli(['--help']);
 check(
