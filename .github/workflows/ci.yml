@@ -42,6 +42,9 @@ jobs:
       - name: Check rule documentation is in sync
         run: npm run docs:check
 
+      - name: Verify the published package
+        run: npm run verify:package
+
   test:
     name: Test (node ${{ matrix.node }} on ${{ matrix.os }})
     runs-on: ${{ matrix.os }}

@@ -5,3 +5,6 @@ fixtures
 node_modules
 docs/rules
 *.md
+
+# Generated corpus output - machine-written, reformatting it is pure churn.
+corpus/results

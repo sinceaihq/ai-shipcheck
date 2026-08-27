@@ -7,22 +7,30 @@ Issues tagged [`roadmap`](https://github.com/sinceaihq/ai-shipcheck/labels/roadm
 track individual items. If something here matters to you, say so on the issue —
 that is the main input into ordering.
 
-## Shipped (0.1)
+## Shipped (1.0)
 
 - 63 rules across nine production-readiness categories
 - Dependency-free JS/TS/JSX lexical analysis
-- Framework detection for the common AI-built stacks
-- Transparent, documented, unit-tested scoring with blockers
+- Framework detection across every manifest in the tree, so monorepos work
+- Transparent, documented, unit-tested scoring with blockers and explicit
+  assessment coverage
 - `pretty`, `json`, `markdown` and SARIF 2.1.0 output
 - Bundled GitHub Action with inline annotations and job summaries
 - Optional configuration, `.gitignore` awareness, bounded scans
+- A reproducible 20-repository validation corpus with a published triage record
+- Clean-room package verification with the registry made unreachable
 
 ## Next
 
-**Reduce false positives before adding rules.** The fixture corpus is small and
-synthetic. The most valuable next step is running against a broad set of real
-open-source projects, triaging what fires, and tightening. Rule count is not
-the metric.
+**Express and Fastify auth coverage.** The largest known gap: the auth rules
+understand Next.js route conventions only, so an Express application gets no
+"this route writes without an authorisation check" finding. Doing this well
+means recognising router-level and app-level middleware, which is why it did
+not make v1.
+
+**Keep widening the corpus.** Twenty repositories found a lexer bug and cut
+findings in half. Forty will find more. This is the highest-value ongoing work
+in the project, and it is where new contributors can help most.
 
 **Baseline files.** `--baseline shipcheck-baseline.json` to record existing
 findings and report only new ones, so the tool is adoptable in a large existing

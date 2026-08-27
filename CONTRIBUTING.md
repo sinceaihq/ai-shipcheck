@@ -29,6 +29,9 @@ Windows, plus the current Node release informationally.
 | `npm run build:action` | Rebuild the bundled GitHub Action |
 | `npm run docs:rules` | Regenerate `docs/rules/` from rule metadata |
 | `npm run bench` | Run the benchmark harness |
+| `npm run verify:package` | Clean-room package verification |
+| `npm run corpus:sync` | Clone the validation corpus at its pinned commits |
+| `npm run corpus:scan` | Scan the corpus and write `corpus/results/` |
 | `npm run check` | Everything |
 
 ## What this project optimises for
@@ -88,6 +91,34 @@ secure fixture fails the build.
 
 Rules that exist mainly to increase the rule count will be declined.
 
+## Validating against real code
+
+Fixtures agree with the rule that produced them by construction. The thing that
+actually tells you whether a rule is precise is running it over code written by
+people who have never heard of this project.
+
+```bash
+npm run build
+npm run corpus:sync    # clones 20 pinned repositories into ~/.cache
+npm run corpus:scan    # scans them, writes corpus/results/
+```
+
+The repositories are never vendored — they live in a cache directory outside
+the repository, so third-party source can never be staged or published by
+accident.
+
+**Run this before and after any change to a rule, the lexer, or detection.**
+Compare `corpus/results/SUMMARY.md`: a change that moves a rule's total by an
+order of magnitude needs an explanation in the pull request, and a change that
+silences a rule entirely usually means it was narrowed too far.
+
+If you change what a rule reports, update its row in
+[`corpus/TRIAGE.md`](corpus/TRIAGE.md).
+
+Widening the corpus is one of the most valuable contributions available. Add a
+repository to `corpus/corpus.json`, run `npm run corpus:sync -- --pin`, triage
+whatever it surfaces, and open a pull request with the fixes.
+
 ## Fixing a false positive
 
 These get priority. A good fix is:
@@ -121,6 +152,10 @@ will be asked to split.
 - New behaviour needs a test. Not "a test file exists" — a test that fails if
   the behaviour is removed.
 - Rule changes need both a positive and a negative case.
+- A fix for something the corpus surfaced belongs in
+  `tests/integration/corpus-regressions.test.ts`, with a comment naming the
+  repository it came from. That comment is what stops the next person
+  "simplifying" the fix away.
 - Filesystem and parser changes need a hostile-input case.
 - No test may depend on network access, wall-clock timing, or the contents of
   a directory outside the repository or a temporary directory.

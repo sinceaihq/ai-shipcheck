@@ -206,8 +206,32 @@ if the committed pages do not match what the rules declare.
 npm run check
 ```
 
-Typecheck, lint, docs sync, tests, build. If that passes, open the pull
-request.
+Typecheck, lint, format, docs sync, tests, build, action bundle.
+
+## 8. Validate against real code
+
+This is the step that separates a rule that looks right from a rule that is
+right.
+
+```bash
+npm run corpus:sync    # first time only
+npm run corpus:scan
+```
+
+Look up your rule in `corpus/results/SUMMARY.md`. Then ask two questions:
+
+**Does it fire at all?** A rule that finds nothing across 33,000 real files may
+be too narrow to be worth having — or the corpus may simply not contain the
+pattern, which is worth saying in the pull request.
+
+**Does it fire too much?** Open a few matches in the cached checkout and read
+them. If most are defensible code, the rule is not ready. Narrowing it now is
+much cheaper than the reputational cost of shipping a noisy rule.
+
+Every high-volume rule in this project was narrowed at least once by exactly
+this process; the record is in [corpus/TRIAGE.md](../corpus/TRIAGE.md).
+
+If that passes, open the pull request.
 
 ---
 

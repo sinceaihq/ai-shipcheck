@@ -27,82 +27,18 @@ jobs:
 
       - run: npm ci
 
-      # Everything below happens in one step, using paths relative to the
-      # workspace. Mixing ${{ runner.temp }} (a native Windows path) with the
-      # bash shell produces a path Git Bash cannot resolve, which made the
-      # install silently do nothing and the check pass for the wrong reason.
-      - name: Pack, install into a clean project, and run the binary
+      # The whole check lives in scripts/verify-package.mjs so that it runs
+      # identically here, in the release workflow, and on a contributor's
+      # laptop. It packs the tarball, installs it into a throwaway project, and
+      # drives the CLI with the registry made unreachable - without that, every
+      # assertion would silently pass by downloading a published copy of the
+      # package instead of testing the one just built.
+      - name: Build
+        run: npm run build
+
+      - name: Verify the packed package
         shell: bash
-        run: |
-          set -euo pipefail
-
-          rm -rf .pack consumer
-          mkdir -p .pack consumer
-          npm pack --pack-destination .pack
-
-          tarball=$(ls .pack/ai-shipcheck-*.tgz)
-          if [ -z "$tarball" ]; then
-            echo "::error::npm pack produced no tarball."
-            exit 1
-          fi
-          echo "Packed $tarball"
-
-          cd consumer
-          npm init -y > /dev/null
-          npm install "../$tarball"
-
-          # The binary must come from the local install. Without this the whole
-          # job would pass by downloading the published package from the
-          # registry, which is not what it exists to verify.
-          if [ ! -e node_modules/.bin/ai-shipcheck ]; then
-            echo "::error::The tarball did not install a binary at node_modules/.bin/ai-shipcheck."
-            exit 1
-          fi
-
-          echo "--- direct binary invocation ---"
-          ./node_modules/.bin/ai-shipcheck --version
-
-          # `--no` forbids fetching from the registry, so this proves npx is
-          # resolving the local install. The `--` separator is required: without
-          # it npx consumes `--version` itself and reports npm's version, which
-          # would make this assertion silently meaningless.
-          echo "--- npx resolution, with the registry off-limits ---"
-          npx --no -- ai-shipcheck --version
-
-          echo "--- clean fixture must pass ---"
-          npx --no -- ai-shipcheck ../fixtures/secure-nextjs --fail-on low
-
-          echo "--- broken fixture must report NOT READY ---"
-          npx --no -- ai-shipcheck ../fixtures/vulnerable-nextjs --format json > report.json
-          node -e "
-            const fs = require('node:fs');
-            const report = JSON.parse(fs.readFileSync('./report.json', 'utf8'));
-            if (report.verdict !== 'NOT READY') {
-              throw new Error('expected NOT READY, got ' + report.verdict);
-            }
-            if (report.schemaVersion !== '1.0') {
-              throw new Error('expected schemaVersion 1.0, got ' + report.schemaVersion);
-            }
-            if (report.findings.length === 0) {
-              throw new Error('expected findings, got none');
-            }
-            console.log('verdict', report.verdict, 'score', report.score, report.findings.length, 'findings');
-          "
-
-          echo "--- exit code 1 when a threshold is not met ---"
-          if npx --no -- ai-shipcheck ../fixtures/vulnerable-nextjs --fail-on critical > /dev/null 2>&1; then
-            echo "::error::Expected exit code 1 for --fail-on critical, got 0."
-            exit 1
-          fi
-
-          echo "--- SARIF output parses ---"
-          npx --no -- ai-shipcheck ../fixtures/vulnerable-supabase --format sarif > report.sarif
-          node -e "
-            const fs = require('node:fs');
-            const log = JSON.parse(fs.readFileSync('./report.sarif', 'utf8'));
-            if (log.version !== '2.1.0') throw new Error('expected SARIF 2.1.0, got ' + log.version);
-            console.log('SARIF ok:', log.runs[0].results.length, 'results');
-          "
+        run: npm run verify:package
 
   action-bundle:
     name: Action bundle is up to date

@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace">
+  <!--
+    GitHub social preview, 1280x640.
+
+    Regenerate the PNG with `npm run assets:social`. Keep this SVG as the
+    source: it is text, so it diffs, and it needs no binary tooling to edit.
+  -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0B0E14"/>
+      <stop offset="55%" stop-color="#111726"/>
+      <stop offset="100%" stop-color="#0B0E14"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#8B5CF6"/>
+      <stop offset="100%" stop-color="#22D3EE"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect x="0" y="0" width="1280" height="4" fill="url(#accent)"/>
+
+  <!-- Wordmark -->
+  <text x="96" y="150" fill="#FFFFFF" font-size="60" font-weight="700" letter-spacing="6">AI SHIPCHECK</text>
+
+  <!-- Promise -->
+  <text x="96" y="222" fill="#C7D2E1" font-size="30" font-weight="400">Your AI says it&#8217;s done.</text>
+  <text x="96" y="266" fill="#C7D2E1" font-size="30" font-weight="400">Shipcheck tells you if it&#8217;s ready to ship.</text>
+
+  <!-- Command -->
+  <rect x="96" y="318" width="600" height="72" rx="10" fill="#161C2B" stroke="#2A3348" stroke-width="1.5"/>
+  <text x="126" y="364" fill="#5EEAD4" font-size="28">$</text>
+  <text x="158" y="364" fill="#E7EDF6" font-size="28">npx ai-shipcheck .</text>
+
+  <!-- Verdict badge -->
+  <rect x="96" y="428" width="352" height="62" rx="8" fill="#7F1D1D"/>
+  <text x="124" y="468" fill="#FFFFFF" font-size="25" font-weight="700" letter-spacing="1.5">NOT READY TO SHIP</text>
+
+  <!-- Category bars, mirroring the terminal report -->
+  <g font-size="19" fill="#8B98AD">
+    <text x="784" y="330">Security</text>
+    <rect x="944" y="314" width="240" height="12" rx="6" fill="#1E2637"/>
+    <rect x="944" y="314" width="144" height="12" rx="6" fill="#F59E0B"/>
+
+    <text x="784" y="372">Auth</text>
+    <rect x="944" y="356" width="240" height="12" rx="6" fill="#1E2637"/>
+    <rect x="944" y="356" width="125" height="12" rx="6" fill="#F59E0B"/>
+
+    <text x="784" y="414">Database</text>
+    <rect x="944" y="398" width="240" height="12" rx="6" fill="#1E2637"/>
+    <rect x="944" y="398" width="12" height="12" rx="6" fill="#EF4444"/>
+
+    <text x="784" y="456">Reliability</text>
+    <rect x="944" y="440" width="240" height="12" rx="6" fill="#1E2637"/>
+    <rect x="944" y="440" width="235" height="12" rx="6" fill="#22C55E"/>
+
+    <text x="784" y="498">Testing</text>
+    <rect x="944" y="482" width="240" height="12" rx="6" fill="#1E2637"/>
+    <rect x="944" y="482" width="170" height="12" rx="6" fill="#F59E0B"/>
+  </g>
+
+  <!-- Footer -->
+  <text x="96" y="566" fill="#6B7A90" font-size="20">No signup &#183; No API key &#183; No source-code upload &#183; Runs locally</text>
+  <text x="1184" y="566" fill="#8B98AD" font-size="20" text-anchor="end">Since AI</text>
+</svg>

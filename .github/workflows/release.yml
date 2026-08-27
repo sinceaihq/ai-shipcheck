@@ -1,0 +1,132 @@
+name: Release
+
+# Publishing is deliberately manual. Tagging a commit does not release it:
+# someone has to run this workflow and name the version, which makes the
+# release an intentional act rather than a side effect of pushing a tag.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. 1.0.0 (must match package.json)'
+        required: true
+        type: string
+      dry-run:
+        description: 'Run every check and pack the tarball, but do not publish'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify the release candidate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      - name: Version input matches package.json
+        run: |
+          declared=$(node -p "require('./package.json').version")
+          if [ "$declared" != "${{ inputs.version }}" ]; then
+            echo "::error::package.json is $declared but the workflow was asked to release ${{ inputs.version }}."
+            exit 1
+          fi
+
+      - name: Version constant matches package.json
+        run: |
+          npm run build
+          built=$(node -p "require('./dist/version.js').VERSION")
+          declared=$(node -p "require('./package.json').version")
+          if [ "$built" != "$declared" ]; then
+            echo "::error::src/version.ts is $built but package.json is $declared."
+            exit 1
+          fi
+
+      - name: Changelog has an entry for this version
+        run: |
+          if ! grep -q "^## \[${{ inputs.version }}\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [${{ inputs.version }}]' section."
+            exit 1
+          fi
+
+      - name: Full quality gate
+        run: npm run check
+
+      - name: Clean-room package verification
+        run: npm run verify:package
+
+      - name: Action bundle is current
+        run: |
+          npm run build:action
+          if ! git diff --exit-code -- action/dist; then
+            echo "::error::action/dist is out of date. Run 'npm run build:action' and commit."
+            exit 1
+          fi
+
+  publish:
+    name: Publish to npm
+    needs: verify
+    if: ${{ inputs.dry-run == false }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      # Required for npm Trusted Publishing: npm exchanges this short-lived
+      # OIDC token for publish rights, so no long-lived token exists to leak.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+      - run: npm run build
+
+      # `--provenance` publishes a signed, verifiable statement linking the
+      # tarball to this workflow run and this commit. Nothing is stored in the
+      # repository: authentication is the OIDC token minted for this job.
+      - name: Publish
+        run: npm publish --provenance --access public
+
+      - name: Tag the release
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ inputs.version }}" -m "AI Shipcheck v${{ inputs.version }}"
+          git push origin "v${{ inputs.version }}"
+
+      - name: Move the v1 major tag
+        run: |
+          major="v$(echo '${{ inputs.version }}' | cut -d. -f1)"
+          git tag -fa "$major" -m "AI Shipcheck $major (currently v${{ inputs.version }})"
+          git push --force origin "$major"
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ inputs.version }}" \
+            --title "AI Shipcheck v${{ inputs.version }}" \
+            --notes "See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for what changed.
+
+          \`\`\`bash
+          npx ai-shipcheck .
+          \`\`\`
+
+          \`\`\`yaml
+          - uses: ${{ github.repository }}@v1
+          \`\`\`"

@@ -85,10 +85,39 @@ is why the number is what it is.
 | --- | --- | --- |
 | `assessed` | At least one rule ran and produced a verdict | Yes |
 | `unassessed` | Rules applied but nothing could be evaluated — for example, no SQL migrations exist so RLS could not be checked | No |
-| `not-applicable` | No rule in the category applies — for example, database rules on a project with no database client | No |
+| `not-applicable` | No rule in the category applies — for example, accessibility rules on an HTTP API with no UI | No |
 
-This is the honesty guarantee. A project with no SQL files does not get a free
-100 for database safety; it gets "not assessed", and the report says so.
+This is the honesty guarantee, and it works in both directions. A project with
+no SQL files does not get a free 100 for database safety; it gets "not
+assessed". An HTTP API with no JSX does not get a free 100 for accessibility
+either — it has no controls, no images and no focus order, so the category is
+excluded from the mean rather than quietly raising it.
+
+A file-scoped rule that saw no files of its type is recorded as `unassessed`,
+not as a pass. Pointing Shipcheck at an empty directory therefore produces a
+report that says nothing could be assessed, rather than a perfect score.
+
+## Assessment coverage
+
+Every report states what the score covers:
+
+```
+Assessed: 34 of 63 checks run · 7/9 categories scored · 11 files · 1 not assessed
+```
+
+These are counts, not a synthesised percentage. "34 of 63 checks ran" is a
+verifiable statement about this scan; a "coverage score" would imply a measure
+of completeness that static analysis of source code cannot support.
+
+The same figures appear as a `coverage` object in JSON output, in the Markdown
+report, and in the SARIF run description.
+
+### Partial scans
+
+When a resource limit stops the walk before the whole project has been read,
+the report leads with a `PARTIAL SCAN` banner and the JSON sets
+`stats.truncated`. A partial scan that reported `READY` without saying so would
+be the most misleading output this tool could produce.
 
 ## Category weights
 

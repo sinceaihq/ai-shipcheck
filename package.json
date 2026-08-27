@@ -1,6 +1,6 @@
 {
   "name": "ai-shipcheck",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Your AI says it's done. Shipcheck tells you if it's ready to ship. Local-first, evidence-backed production-readiness scanner for JavaScript and TypeScript apps.",
   "keywords": [
     "production-readiness",
@@ -62,7 +62,13 @@
     "docs:check": "node scripts/generate-rule-docs.mjs --check",
     "bench": "node scripts/bench.mjs",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run docs:check && npm run test && npm run build && npm run build:action",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "corpus:sync": "node scripts/corpus.mjs sync",
+    "corpus:scan": "node scripts/corpus.mjs scan",
+    "corpus:report": "node scripts/corpus.mjs report",
+    "verify:package": "node scripts/verify-package.mjs",
+    "assets:social": "node scripts/build-assets.mjs",
+    "gate": "node scripts/release-gate.mjs"
   },
   "dependencies": {
     "ignore": "^7.0.5"

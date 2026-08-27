@@ -96,32 +96,44 @@ what the application is meant to do.
 
 ## Known false-positive sources
 
-Reported when they occur, and each fix ships with a regression test. The
-current known sources:
+These are the ones that survived validation against 20 real repositories. Each
+was measured, not guessed; see [corpus/TRIAGE.md](../corpus/TRIAGE.md).
 
 - **Custom auth wrappers.** A house-style `withGuard(handler)` that Shipcheck's
   signal list does not recognise will produce an "unprotected route" finding.
-- **Framework-provided pagination.** A query bounded by a library rather than
-  an explicit `take`/`limit` may be reported as unbounded.
-- **Generated code that is not detected as generated.** Detection is based on
-  average line length and directory naming; generated code formatted like
-  handwritten code will be analysed as handwritten.
-- **Monorepos.** A scan of the repository root sees all packages at once.
-  Framework detection is union-based, so a rule requiring Next.js may run
-  against a package that has nothing to do with it. Scanning each package
-  separately gives better results today.
+  The list is deliberately generous, but it cannot cover every codebase.
+- **Query builders and ORMs.** A library whose job is assembling SQL will be
+  reported by `database/raw-sql-interpolation`. The finding is accurate about
+  the construct; whether the interpolated values are request-derived is not
+  something static analysis can tell. It is reported at low confidence and does
+  not block outside request-handling code.
+- **Client-side navigation helpers.** `security/open-redirect` reports
+  `window.location.href = url` where `url` came from a caller, even when the
+  destination was validated server-side.
+- **Monorepos scanned at the root.** Framework detection unions every
+  `package.json` in the tree, so a rule requiring Next.js may run against a
+  package that has nothing to do with it. Scanning each package separately
+  gives sharper results.
+- **Generated code that is not detected as generated.** Detection uses
+  filename conventions and average line length; generated code formatted like
+  handwritten code is analysed as handwritten.
 
-If you hit one of these, please
+If you hit one of these, or something not on this list, please
 [report it](https://github.com/sinceaihq/ai-shipcheck/issues/new?template=false_positive.yml).
+Every fix ships with a regression test.
 
 ## Known false-negative sources
 
+- **Express and Fastify routes are not covered by the auth rules.** Those
+  understand Next.js route conventions. An Express application is checked for
+  everything else but will not get a "this route writes without an auth check"
+  finding. This is the single largest gap in v1 and is on the roadmap.
 - **Obfuscated or minified code.** Files with very long average lines are
   skipped as generated.
 - **Very large files.** Files over 1 MiB or 20,000 lines are skipped; the
   report says how many.
-- **Truncated scans.** If a limit is hit, the report says so — but the findings
-  it did produce are necessarily incomplete.
+- **Truncated scans.** If a limit is hit the report leads with a `PARTIAL SCAN`
+  banner — but the findings it did produce are necessarily incomplete.
 - **Dynamic construction.** A route registered from a computed string, a query
   built by a helper, a model name assembled at runtime.
 

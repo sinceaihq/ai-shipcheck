@@ -1389,7 +1389,7 @@ function lex(src) {
   }
   const spans = [];
   const strings = [];
-  const lineStarts = [0];
+  const lineStarts = computeLineStarts(src);
   const blank = (from, to, alsoKeepView = false) => {
     for (let i2 = from; i2 < to && i2 < len; i2++) {
       if (src[i2] === "\n" || src[i2] === "\r") continue;
@@ -1403,7 +1403,6 @@ function lex(src) {
   while (i < len) {
     const ch = src[i];
     if (ch === "\n") {
-      lineStarts.push(i + 1);
       i++;
       continue;
     }
@@ -1523,6 +1522,13 @@ function lex(src) {
     strings,
     lineStarts
   };
+}
+function computeLineStarts(src) {
+  const starts = [0];
+  for (let i = 0; i < src.length; i++) {
+    if (src.charCodeAt(i) === 10) starts.push(i + 1);
+  }
+  return starts;
 }
 function scanQuoted(src, start, quote) {
   const len = src.length;
@@ -2312,28 +2318,39 @@ async function buildIndex(options) {
   });
   await Promise.all(workers);
   files.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
-  const pkgFile = files.find((f) => f.path === "package.json");
+  const manifestFiles = files.filter(
+    (f) => f.path === "package.json" || f.path.endsWith("/package.json")
+  );
+  const manifests = [];
   let packageJson = null;
-  if (pkgFile !== void 0) {
-    const parsed = parsePackageJson(pkgFile.content, "package.json");
-    packageJson = parsed.data;
+  for (const file of manifestFiles) {
+    const parsed = parsePackageJson(file.content, file.path);
     if (parsed.warning !== null) warnings.push(parsed.warning);
+    if (parsed.data === null) continue;
+    manifests.push(parsed.data);
+    if (file.path === "package.json") packageJson = parsed.data;
   }
   const allPaths = [...walked.files.map((f) => f.path), ...skipped.map((s) => s.path)].sort();
-  const profile = await buildProfile({ root, packageJson, files, allPaths });
+  const profile = await buildProfile({ root, packageJson, manifests, files, allPaths });
   if (packageJson === null && files.every((f) => !SOURCE_EXTENSIONS.includes(f.ext))) {
     warnings.push(
       `No package.json and no JavaScript or TypeScript source files were found under ${root}. Shipcheck v1 analyses JS/TS projects; point it at the directory that contains package.json.`
     );
   }
   const index = new ProjectIndex({ root, profile, files, allPaths, packageJson, warnings });
+  if (walked.truncated) {
+    warnings.push(
+      "A resource limit stopped the scan before the whole project was read. The report below covers only what was scanned - raise the limits in shipcheck.config.json, or exclude the directory responsible, and scan again."
+    );
+  }
   return {
     index,
     filesScanned: files.length,
     filesSkipped: skipped.length,
     bytesScanned,
     warnings,
-    skipped
+    skipped,
+    truncated: walked.truncated
   };
 }
 async function detectPackageManager(root) {
@@ -2355,8 +2372,9 @@ async function detectPackageManager(root) {
   return null;
 }
 async function buildProfile(input) {
-  const { root, packageJson, files, allPaths } = input;
-  const frameworks = detectFrameworks({ pkg: packageJson, paths: allPaths });
+  const { root, packageJson, manifests, files, allPaths } = input;
+  const merged = mergeManifests(manifests);
+  const frameworks = detectFrameworks({ pkg: merged, paths: allPaths });
   const languages = [];
   if (files.some((f) => f.isTypeScript) || allPaths.includes("tsconfig.json"))
     languages.push("typescript");
@@ -2382,10 +2400,22 @@ async function buildProfile(input) {
     hasTests,
     hasCi,
     isMonorepo,
-    dependencies: packageJson?.dependencies ?? {},
-    devDependencies: packageJson?.devDependencies ?? {},
-    scripts: packageJson?.scripts ?? {}
+    dependencies: merged.dependencies ?? {},
+    devDependencies: merged.devDependencies ?? {},
+    scripts: packageJson?.scripts ?? {},
+    manifestCount: manifests.length
   };
+}
+function mergeManifests(manifests) {
+  const dependencies = {};
+  const devDependencies = {};
+  const peerDependencies = {};
+  for (const manifest of manifests) {
+    Object.assign(dependencies, manifest.dependencies ?? {});
+    Object.assign(devDependencies, manifest.devDependencies ?? {});
+    Object.assign(peerDependencies, manifest.peerDependencies ?? {});
+  }
+  return { dependencies, devDependencies, peerDependencies };
 }
 
 // src/scoring/weights.ts
@@ -2582,7 +2612,7 @@ function plural(n, singular, pluralForm) {
 }
 
 // src/version.ts
-var VERSION = "0.1.0";
+var VERSION = "1.0.0";
 
 // src/core/engine.ts
 function resolveRules(registry, config) {
@@ -2699,13 +2729,14 @@ async function runScan(options) {
       continue;
     }
     rulesRun++;
-    findings.push(...collected);
-    if (collected.length > 0) {
+    const deduped = dedupeFindings(collected);
+    findings.push(...deduped);
+    if (deduped.length > 0) {
       checks.push({
         ruleId: rule.meta.id,
         category: rule.meta.category,
         status: "fail",
-        findingCount: collected.length
+        findingCount: deduped.length
       });
     } else if (unassessedReason !== null) {
       rulesRun--;
@@ -2741,6 +2772,7 @@ async function runScan(options) {
     verdict,
     verdictReasons,
     categories,
+    coverage: summariseCoverage(checks, categories),
     stats: {
       filesScanned: built.filesScanned,
       filesSkipped: built.filesSkipped,
@@ -2748,9 +2780,29 @@ async function runScan(options) {
       durationMs: Math.round(performance.now() - started),
       rulesRun,
       rulesSkipped,
+      truncated: built.truncated,
+      skippedByReason: countByReason(built.skipped),
       warnings
     }
   };
+}
+function summariseCoverage(checks, categories) {
+  return {
+    checksRun: checks.filter((c) => c.status === "pass" || c.status === "fail").length,
+    checksTotal: checks.length,
+    checksUnassessed: checks.filter((c) => c.status === "unassessed").length,
+    checksNotApplicable: checks.filter((c) => c.status === "not-applicable").length,
+    checksDisabled: checks.filter((c) => c.status === "disabled").length,
+    categoriesAssessed: categories.filter((c) => c.status === "assessed").length,
+    categoriesTotal: CATEGORIES.length
+  };
+}
+function countByReason(skipped) {
+  const counts = {};
+  for (const entry of skipped) {
+    counts[entry.reason] = (counts[entry.reason] ?? 0) + 1;
+  }
+  return Object.fromEntries(Object.entries(counts).sort(([a], [b]) => a.localeCompare(b)));
 }
 function checkFrameworkGate(rule, index) {
   const required = rule.meta.requiresFrameworks;
@@ -2773,6 +2825,18 @@ function materialise(rule, severity, finding) {
   const blocker = finding.blocker ?? rule.meta.blocker;
   if (blocker === true) result.blocker = true;
   return result;
+}
+function dedupeFindings(findings) {
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const finding of findings) {
+    const first = finding.evidence[0];
+    const key = first === void 0 ? `${finding.ruleId}|${finding.title}` : `${finding.ruleId}|${first.file}|${first.line}|${first.column}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(finding);
+  }
+  return out;
 }
 function compareFindings(a, b) {
   const bySeverity = SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity);
@@ -2865,47 +2929,6 @@ function defineRule(rule) {
   }
   return rule;
 }
-
-// src/rules/security/committed-env-file.ts
-var TEMPLATE_ENV = /\.env\.(?:example|sample|template|defaults?|test|ci)$/;
-var ASSIGNMENT = /^\s*(?:export\s+)?([A-Z0-9_]{3,})\s*=\s*(\S.*)$/gm;
-var committed_env_file_default = defineRule({
-  meta: {
-    id: "security/committed-env-file",
-    category: "security",
-    title: "Environment file is not excluded from version control",
-    severity: "high",
-    confidence: "high",
-    description: "A .env file with real-looking values is present in the working tree and is not matched by .gitignore. Environment files hold database URLs, API keys and signing secrets; once committed they are in the history of every clone and every CI checkout.",
-    remediation: 'Add .env and .env.*.local to .gitignore, remove the file from tracking with "git rm --cached .env", keep a committed .env.example containing only placeholder values, and rotate anything that was exposed.',
-    references: ["https://12factor.net/config"],
-    tags: ["secrets", "configuration"]
-  },
-  checkProject(ctx) {
-    const envFiles = ctx.index.files.filter(
-      (f) => f.role === "env" && !TEMPLATE_ENV.test(f.path) && !f.path.includes("fixtures/")
-    );
-    if (envFiles.length === 0) {
-      ctx.markUnassessed("No environment files were present in the scanned tree.");
-      return;
-    }
-    const gitignore = ctx.index.file(".gitignore");
-    const ignoresEnv = gitignore !== void 0 && /^\s*\.env(?:\*|\.\*)?\s*$/m.test(gitignore.content);
-    for (const file of envFiles) {
-      const assignments = [...file.content.matchAll(ASSIGNMENT)].filter(([, , value]) => {
-        const v = (value ?? "").trim().replace(/^["']|["']$/g, "");
-        return v.length >= 8 && !v.startsWith("<") && !/^(?:your|example|placeholder|changeme)/i.test(v);
-      });
-      if (assignments.length === 0) continue;
-      ctx.report({
-        title: `${file.path} contains ${assignments.length} populated variable${assignments.length === 1 ? "" : "s"} and is not gitignored`,
-        confidence: ignoresEnv ? "medium" : "high",
-        explanation: ignoresEnv ? `${file.path} holds ${assignments.length} populated variables. .gitignore mentions .env, but this file was still found in the working tree - confirm it is not tracked with "git ls-files ${file.path}".` : `${file.path} holds ${assignments.length} populated variables and no .gitignore rule excludes it. Any commit will publish these values.`,
-        evidence: [file.evidenceAt(0, { note: `${assignments.length} populated variables` })]
-      });
-    }
-  }
-});
 
 // src/rules/helpers.ts
 var MUTATING_METHODS = ["POST", "PUT", "PATCH", "DELETE"];
@@ -3027,7 +3050,9 @@ function projectHasRateLimiter(index) {
   ) || index.hasDependencyMatching("@arcjet/");
 }
 var LLM_CALL_PATTERNS = [
-  /\bchat\s*\.\s*completions\s*\.\s*create\s*\(/,
+  // `chat.completions.create` is matched by the generic completions pattern
+  // below, so it is not listed separately - overlapping alternatives would
+  // report the same call site twice.
   /\bcompletions\s*\.\s*create\s*\(/,
   /\bresponses\s*\.\s*create\s*\(/,
   /\bmessages\s*\.\s*(?:create|stream)\s*\(/,
@@ -3036,20 +3061,27 @@ var LLM_CALL_PATTERNS = [
   /\bgenerateObject\s*\(/,
   /\bstreamObject\s*\(/,
   /\bgenerateContent\s*\(/,
-  /\bembeddings\s*\.\s*create\s*\(/,
-  /\binvoke\s*\(\s*\{?\s*(?:messages|input)/
+  /\bembeddings\s*\.\s*create\s*\(/
+  // `.invoke({ messages })` is deliberately absent. In LangChain it is the
+  // generic runnable entry point - it covers chains, retrievers and agents,
+  // where a token cap or a timeout is configured on the model object rather
+  // than at the call site. Matching it reported hundreds of findings that had
+  // no action attached to them.
 ];
 function hasLlmCall(text) {
   return LLM_CALL_PATTERNS.some((p) => p.test(text));
 }
 function findLlmCalls(file) {
-  const out = [];
+  const byOffset = /* @__PURE__ */ new Map();
   for (const pattern of LLM_CALL_PATTERNS) {
     for (const match of file.matches(new RegExp(pattern.source, "g"))) {
-      out.push({ index: match.index, text: match.text });
+      const existing = byOffset.get(match.index);
+      if (existing === void 0 || match.text.length > existing.text.length) {
+        byOffset.set(match.index, { index: match.index, text: match.text });
+      }
     }
   }
-  return out.sort((a, b) => a.index - b.index);
+  return [...byOffset.values()].sort((a, b) => a.index - b.index);
 }
 function callArgumentObject(file, callOffset) {
   const code = file.code;
@@ -3071,11 +3103,17 @@ function callArgumentObject(file, callOffset) {
   if (end === -1) return null;
   return file.content.slice(open + 1, end);
 }
+var NON_PRODUCTION_PATH = /(?:^|\/)(?:examples?|demos?|samples?|playground|sandbox|starters?|templates?|boilerplate|scaffold|docs?|documentation|website|www|fixtures?|__fixtures__|__mocks__|mocks|stories|__stories__|bench|benchmarks?|perf|e2e|cypress|playwright|test|tests|__tests__|spec|specs)\//i;
+var GENERATED_FILE = /(?:\.gen|\.generated|_generated|-generated|\.pb|_pb|-bindings|\.bundle|\.min)\.[cm]?[jt]sx?$/i;
 function isNonProductionFile(file) {
-  return file.role === "test" || file.role === "config" || file.path.startsWith("scripts/") || file.path.startsWith("tools/") || file.path.startsWith("bench/") || /(?:^|\/)(?:examples?|demos?|docs?|fixtures?|__mocks__|mocks)\//.test(file.path);
+  return file.role === "test" || file.role === "config" || /^(?:scripts?|tools?|bin|build|config)\//.test(file.path) || NON_PRODUCTION_PATH.test(file.path) || GENERATED_FILE.test(file.path) || /\.stories\.[cm]?[jt]sx?$/i.test(file.path);
 }
 var SECRET_ENV_NAME = /(?:SECRET|PRIVATE|_KEY|APIKEY|API_KEY|TOKEN|PASSWORD|PASSWD|CREDENTIAL|SERVICE_ROLE|CLIENT_SECRET|WEBHOOK_SECRET|ACCESS_KEY|SESSION|SALT|DSN|DATABASE_URL|CONNECTION_STRING)/i;
 var KNOWN_PUBLIC_ENV_SUFFIXES = [
+  // Analytics, error-reporting, search and realtime vendors issue client-side
+  // keys that are meant to be embedded in the page. Flagging them is a false
+  // positive every time, and one that trains people to ignore the rule.
+  /^(?:POSTHOG|MIXPANEL|AMPLITUDE|SEGMENT|GA|GTM|GOOGLE_ANALYTICS|HOTJAR|LOGROCKET|FULLSTORY|INTERCOM|CRISP|PLAUSIBLE|FATHOM|UMAMI|SENTRY|BUGSNAG|DATADOG|ALGOLIA|TYPESENSE|MEILISEARCH|MAPBOX|GOOGLE_MAPS|PUSHER|ABLY|STREAM|LIVEKIT|CLERK|FIREBASE|VAPID|TURNSTILE|RECAPTCHA|HCAPTCHA)[A-Z0-9_]*$/i,
   /ANON_KEY$/i,
   /PUBLISHABLE_KEY$/i,
   /PUBLIC_KEY$/i,
@@ -3127,7 +3165,91 @@ function isDeployableApp(index) {
     "vite"
   );
 }
+function projectEvidence(index, filePath, options = {}) {
+  const file = index.file(filePath);
+  if (file === void 0) {
+    return {
+      file: filePath,
+      line: 1,
+      column: 1,
+      snippet: "",
+      ...options.note === void 0 ? {} : { note: options.note }
+    };
+  }
+  let offset = 0;
+  if (options.anchor !== void 0) {
+    const match = [...file.matchesText(new RegExp(options.anchor.source, "g"))][0];
+    if (match !== void 0) offset = match.index;
+  }
+  if (offset === 0) {
+    const firstContent = /\S/.exec(file.content);
+    offset = firstContent?.index ?? 0;
+  }
+  return file.evidenceAt(offset, options.note === void 0 ? {} : { note: options.note });
+}
+function requiresRenderedUi(index) {
+  const hasJsx = index.files.some((file) => file.isJsx && file.has(/<[A-Za-z][\w.-]*[\s/>]/g));
+  if (!hasJsx) {
+    return {
+      applicable: false,
+      status: "not-applicable",
+      reason: "No JSX was found in this project, so there is no rendered UI to assess."
+    };
+  }
+  return { applicable: true };
+}
+function requiresModelSdk(index) {
+  if (!index.hasFramework("openai", "anthropic", "vercel-ai-sdk", "langchain")) {
+    return {
+      applicable: false,
+      status: "not-applicable",
+      reason: "No language model SDK was detected in this project."
+    };
+  }
+  return { applicable: true };
+}
 var MAX_FINDINGS_PER_RULE = 25;
+
+// src/rules/security/committed-env-file.ts
+var TEMPLATE_ENV = /\.env\.(?:example|sample|template|defaults?|test|ci)$/;
+var ASSIGNMENT = /^\s*(?:export\s+)?([A-Z0-9_]{3,})\s*=\s*(\S.*)$/gm;
+var committed_env_file_default = defineRule({
+  meta: {
+    id: "security/committed-env-file",
+    category: "security",
+    title: "Environment file is not excluded from version control",
+    severity: "high",
+    confidence: "high",
+    description: "A .env file with real-looking values is present in the working tree and is not matched by .gitignore. Environment files hold database URLs, API keys and signing secrets; once committed they are in the history of every clone and every CI checkout.",
+    remediation: 'Add .env and .env.*.local to .gitignore, remove the file from tracking with "git rm --cached .env", keep a committed .env.example containing only placeholder values, and rotate anything that was exposed.',
+    references: ["https://12factor.net/config"],
+    tags: ["secrets", "configuration"]
+  },
+  checkProject(ctx) {
+    const envFiles = ctx.index.files.filter(
+      (f) => f.role === "env" && !TEMPLATE_ENV.test(f.path) && !isNonProductionFile(f)
+    );
+    if (envFiles.length === 0) {
+      ctx.markUnassessed("No environment files were present in the scanned tree.");
+      return;
+    }
+    const gitignore = ctx.index.file(".gitignore");
+    const ignoresEnv = gitignore !== void 0 && /^\s*\.env(?:\*|\.\*)?\s*$/m.test(gitignore.content);
+    for (const file of envFiles) {
+      const assignments = [...file.content.matchAll(ASSIGNMENT)].filter(([, , value]) => {
+        const v = (value ?? "").trim().replace(/^["']|["']$/g, "");
+        return v.length >= 8 && !v.startsWith("<") && !/^(?:your|example|placeholder|changeme)/i.test(v);
+      });
+      if (assignments.length === 0) continue;
+      ctx.report({
+        title: `${file.path} contains ${assignments.length} populated variable${assignments.length === 1 ? "" : "s"} and is not gitignored`,
+        confidence: ignoresEnv ? "medium" : "high",
+        explanation: ignoresEnv ? `${file.path} holds ${assignments.length} populated variables. .gitignore mentions .env, but this file was still found in the working tree - confirm it is not tracked with "git ls-files ${file.path}".` : `${file.path} holds ${assignments.length} populated variables and no .gitignore rule excludes it. Any commit will publish these values.`,
+        evidence: [file.evidenceAt(0, { note: `${assignments.length} populated variables` })]
+      });
+    }
+  }
+});
 
 // src/rules/security/dangerous-html.ts
 var DANGEROUS_HTML = /dangerouslySetInnerHTML\s*=\s*\{\{/g;
@@ -3135,6 +3257,7 @@ var INNER_HTML_ASSIGN = /\.\s*innerHTML\s*=/g;
 var OUTER_HTML_ASSIGN = /\.\s*outerHTML\s*=/g;
 var DOCUMENT_WRITE = /document\s*\.\s*write(?:ln)?\s*\(/g;
 var SANITIZER = /\b(?:DOMPurify|sanitize\w*|sanitizeHtml|xss\(|purify|createDOMPurify)/i;
+var STATIC_HTML_LITERAL = /__html\s*:\s*(?:'[^'\n]*'|"[^"\n]*"|`[^`$]*`)\s*[,}]/;
 var dangerous_html_default = defineRule({
   meta: {
     id: "security/dangerous-html",
@@ -3151,7 +3274,7 @@ var dangerous_html_default = defineRule({
     tags: ["xss", "owasp-a03"]
   },
   checkFile(file, ctx) {
-    if (file.role === "test") return;
+    if (isNonProductionFile(file)) return;
     let reported = 0;
     const emit = (index, length, what, remediation) => {
       if (reported >= MAX_FINDINGS_PER_RULE) return;
@@ -3169,6 +3292,7 @@ ${file.lineText(line + 1)}`;
       });
     };
     for (const m of file.matches(DANGEROUS_HTML)) {
+      if (STATIC_HTML_LITERAL.test(file.content.slice(m.index, m.index + 400))) continue;
       emit(
         m.index,
         m.text.length,
@@ -3207,6 +3331,7 @@ ${file.lineText(line + 1)}`;
 var TLS_ENV = /(?:process\s*\.\s*env\s*\.|env\s*\.|process\s*\.\s*env\s*\[\s*['"]|export\s+|^[ \t]*)NODE_TLS_REJECT_UNAUTHORIZED(?:['"]\s*\])?\s*[:=]\s*['"]?0['"]?/gm;
 var REJECT_UNAUTHORIZED = /rejectUnauthorized\s*:\s*false/g;
 var INSECURE_AGENT = /strictSSL\s*:\s*false|insecureHTTPParser\s*:\s*true|checkServerIdentity\s*:\s*\(\s*\)\s*=>/g;
+var OPT_IN_INSECURE = /\b(?:options|opts|args|argv|flags|config|settings)\s*(?:\?\.)?\.\s*(?:insecure|allowInsecure|skipTlsVerify|ignoreSsl|selfSigned|noStrictSsl)\b|--insecure|\bif\s*\(\s*[\w$.]*insecure/i;
 var disabled_tls_verification_default = defineRule({
   meta: {
     id: "security/disabled-tls-verification",
@@ -3237,10 +3362,13 @@ var disabled_tls_verification_default = defineRule({
     ".yaml"
   ],
   checkFile(file, ctx) {
-    if (file.role === "test") return;
+    if (isNonProductionFile(file)) return;
     let reported = 0;
     const emit = (index, length, what) => {
       if (reported >= MAX_FINDINGS_PER_RULE) return;
+      const line = file.lineAt(index);
+      const context = [line - 3, line - 2, line - 1, line].filter((n) => n >= 1).map((n) => file.lineText(n)).join("\n");
+      if (OPT_IN_INSECURE.test(context)) return;
       reported++;
       ctx.report({
         title: `${what} disables TLS certificate verification`,
@@ -3312,6 +3440,7 @@ var exposed_debug_route_default = defineRule({
     tags: ["exposure", "owasp-a01"]
   },
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     if (file.role !== "next-app-route" && file.role !== "next-pages-api") return;
     const routePath = toRoutePath(file.path);
     if (!DEBUG_SEGMENT.test(routePath)) return;
@@ -3526,6 +3655,7 @@ function classify(value, assignedTo) {
   }
   if (assignedTo === null || !SECRET_NAME.test(assignedTo)) return null;
   if (value.length < MIN_ENTROPY_LENGTH) return null;
+  if (!/^[A-Za-z0-9_\-+/=.:]+$/.test(value)) return null;
   if (/\s/.test(value)) return null;
   if (value.startsWith("http://") || value.startsWith("https://")) return null;
   if (value.startsWith("./") || value.startsWith("../") || value.startsWith("/")) return null;
@@ -3576,13 +3706,15 @@ var insecure_randomness_default = defineRule({
 
 // src/rules/security/open-redirect.ts
 var REDIRECT_SINKS = [
-  /\bredirect\s*\(\s*([^)]{0,160})\)/g,
-  /\bNextResponse\s*\.\s*redirect\s*\(\s*([^)]{0,160})\)/g,
-  /\bres\s*\.\s*redirect\s*\(\s*([^)]{0,160})\)/g,
+  // `NextResponse.redirect(...)` and `res.redirect(...)` both end in
+  // `redirect(`, so one pattern covers all three call shapes. Listing them
+  // separately would report the same call site more than once.
+  /(?:\bNextResponse\s*\.\s*|\bres(?:ponse)?\s*\.\s*|\b)redirect\s*\(\s*([^)]{0,160})\)/g,
   /\bwindow\s*\.\s*location\s*(?:\.\s*(?:href|assign|replace)\s*=?\s*\(?)\s*([^;)\n]{0,160})/g
 ];
-var REQUEST_SOURCE = /(?:searchParams\s*\.\s*get|req\.query|request\.query|req\.body|request\.body|params\s*\.\s*|query\s*\.\s*|formData\s*\.\s*get|\bnext\b|redirect(?:To|_to|Url|_url)|returnTo|return_to|callbackUrl|continue)/i;
-var VALIDATION = /(?:startsWith\s*\(\s*['"]\/|allowlist|allowList|whitelist|ALLOWED_|isSafeRedirect|sanitizeRedirect|validateRedirect|new URL\([^)]*,\s*(?:process\.env|['"]https?:)|\.origin\s*(?:===|!==)|hostname\s*(?:===|!==))/;
+var REQUEST_SOURCE = /(?:searchParams\s*\.\s*get|req\.query|request\.query|req\.body|request\.body|params\s*\.\s*\w|query\s*\.\s*\w|formData\s*\.\s*get|\b(?:redirectTo|redirect_to|redirectUrl|redirect_url|returnTo|return_to|returnUrl|callbackUrl|continueTo)\b)/i;
+var VALIDATION = /(?:startsWith\s*\(\s*['"]\/|allowlist|allowList|whitelist|ALLOWED_|new URL\([^)]*,\s*(?:process\.env|['"]https?:)|\.origin\s*(?:===|!==)|hostname\s*(?:===|!==)|\b(?:is|validate|check|assert|ensure|normali[sz]e|sanitiz\w*|safe|clean|resolve)\w*(?:Redirect|Return|ReturnTo|Url|Uri|Path|Next|Callback|Destination)\w*\s*\(|\bisValid\w*\s*\()/i;
+var SAME_ORIGIN_LITERAL = /^\s*(?:new\s+URL\s*\(\s*)?[`'"]\//;
 var open_redirect_default = defineRule({
   meta: {
     id: "security/open-redirect",
@@ -3599,14 +3731,17 @@ var open_redirect_default = defineRule({
     tags: ["redirect", "owasp-a01"]
   },
   checkFile(file, ctx) {
-    if (file.role === "test") return;
+    if (isNonProductionFile(file)) return;
     let reported = 0;
     for (const pattern of REDIRECT_SINKS) {
       for (const match of file.matches(pattern)) {
         if (reported >= MAX_FINDINGS_PER_RULE) return;
         const argument = match.groups[0];
         if (argument === void 0) continue;
-        if (!REQUEST_SOURCE.test(argument)) continue;
+        if (SAME_ORIGIN_LITERAL.test(argument)) continue;
+        if (!REQUEST_SOURCE.test(argument) && !bindingComesFromRequest(file.content, argument)) {
+          continue;
+        }
         const line = file.lineAt(match.index);
         const context = [line - 4, line - 3, line - 2, line - 1, line].filter((n) => n >= 1).map((n) => file.lineText(n)).join("\n");
         if (VALIDATION.test(context)) continue;
@@ -3619,6 +3754,18 @@ var open_redirect_default = defineRule({
     }
   }
 });
+function bindingComesFromRequest(content, expression) {
+  const root = /^[A-Za-z_$][\w$]*/.exec(expression.trim())?.[0];
+  if (root === void 0) return false;
+  const assignment = new RegExp(`(?:const|let|var)\\s+${root}\\s*=\\s*[^;\\n]{0,200}`, "g");
+  let m;
+  while ((m = assignment.exec(content)) !== null) {
+    if (REQUEST_SOURCE.test(m[0]) || /searchParams|\\bquery\\b|\\bbody\\b|\\bparams\\b/.test(m[0])) {
+      return true;
+    }
+  }
+  return false;
+}
 
 // src/rules/security/permissive-cors.ts
 var WILDCARD_HEADER = /['"]Access-Control-Allow-Origin['"]\s*[,:]\s*['"]\*['"]/g;
@@ -3642,7 +3789,7 @@ var permissive_cors_default = defineRule({
     tags: ["cors", "owasp-a05"]
   },
   checkFile(file, ctx) {
-    if (file.role === "test") return;
+    if (isNonProductionFile(file)) return;
     let reported = 0;
     const hasCredentials = CREDENTIALS.test(file.text);
     const emit = (index, length, what) => {
@@ -3650,8 +3797,9 @@ var permissive_cors_default = defineRule({
       reported++;
       ctx.report({
         title: hasCredentials ? `${what} combined with credentialed requests` : `${what} allows any origin`,
-        severity: hasCredentials ? "critical" : "high",
-        explanation: hasCredentials ? `${file.path} allows any origin *and* enables credentialed cross-origin requests. Any website a logged-in user visits can call this API as them and read the response.` : `${file.path} allows any origin to call this API. Every endpoint it covers is reachable from any page on the internet.`,
+        severity: hasCredentials ? "critical" : "medium",
+        confidence: hasCredentials ? "high" : "low",
+        explanation: hasCredentials ? `${file.path} allows any origin *and* enables credentialed cross-origin requests. Any website a logged-in user visits can call this API as them and read the response.` : `${file.path} allows any origin to call this API. That is correct for a deliberately public endpoint, and wrong for anything that returns user-specific data - confirm which this is.`,
         evidence: [file.evidenceAt(index, { length })]
       });
     };
@@ -3835,7 +3983,7 @@ var unsafe_url_construction_default = defineRule({
   },
   checkFile(file, ctx) {
     if (!file.isServer && file.role !== "other") return;
-    if (file.role === "test") return;
+    if (isNonProductionFile(file)) return;
     let reported = 0;
     for (const match of file.matches(FETCH_INTERPOLATED)) {
       if (reported >= MAX_FINDINGS_PER_RULE) return;
@@ -3844,7 +3992,7 @@ var unsafe_url_construction_default = defineRule({
       if (!HOST_POSITION.test(template)) continue;
       const expression = /\$\{([^}]{0,120})\}/.exec(template)?.[1] ?? "";
       const directlyTainted = REQUEST_DATA.test(expression) || REQUEST_DATA.test(file.lineText(file.lineAt(match.index)));
-      if (!directlyTainted && !bindingComesFromRequest(file.content, expression)) continue;
+      if (!directlyTainted && !bindingComesFromRequest2(file.content, expression)) continue;
       reported++;
       ctx.report({
         explanation: `${file.path} builds an outbound request URL whose host comes from request data (\`${expression.trim()}\`). An attacker controls which server your backend connects to.`,
@@ -3853,7 +4001,7 @@ var unsafe_url_construction_default = defineRule({
     }
   }
 });
-function bindingComesFromRequest(content, expression) {
+function bindingComesFromRequest2(content, expression) {
   const root = /^[A-Za-z_$][\w$]*/.exec(expression.trim())?.[0];
   if (root === void 0) return false;
   const assignment = new RegExp(`(?:const|let|var)\\s+${root}\\s*=\\s*[^;\\n]{0,200}`, "g");
@@ -3945,6 +4093,7 @@ var client_side_only_authorization_default = defineRule({
     return { applicable: true };
   },
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     if (!file.isClientComponent && file.role !== "react-module" && file.role !== "next-pages-page")
       return;
     let reported = 0;
@@ -3973,7 +4122,8 @@ var client_side_only_authorization_default = defineRule({
 var JWT_DECODE = /\bjwt(?:wt)?\s*\.\s*decode\s*\(|\bjwtDecode\s*\(|\bdecodeJwt\s*\(/g;
 var ALGORITHM_NONE = /algorithms?\s*:\s*\[?\s*['"]none['"]/gi;
 var IGNORE_EXPIRATION = /ignoreExpiration\s*:\s*true/g;
-var VERIFY_PRESENT = /\bjwt(?:wt)?\s*\.\s*verify\s*\(|\bjwtVerify\s*\(|\bverifyIdToken\s*\(|\bjoseVerify\b/;
+var VERIFY_PRESENT = /\bjwt(?:wt)?\s*\.\s*verify\s*\(|\bjwtVerify\s*\(|\bverifyIdToken\s*\(|\bjoseVerify\b|\bverifySessionCookie\s*\(/;
+var TRUSTED_CLAIM_USE = /\.\s*(?:sub|role|roles|isAdmin|is_admin|permissions|scope|scopes|userId|user_id|uid|email|tenantId|org|orgId)\b|\[\s*['"](?:sub|role|roles|permissions|scope|userId|uid|email)['"]\s*\]/;
 var jwt_verification_bypass_default = defineRule({
   meta: {
     id: "auth/jwt-verification-bypass",
@@ -3991,7 +4141,7 @@ var jwt_verification_bypass_default = defineRule({
     tags: ["jwt", "authorization", "owasp-a07"]
   },
   checkFile(file, ctx) {
-    if (file.role === "test") return;
+    if (isNonProductionFile(file)) return;
     let reported = 0;
     for (const match of file.matchesText(ALGORITHM_NONE)) {
       if (reported >= MAX_FINDINGS_PER_RULE) return;
@@ -4005,11 +4155,16 @@ var jwt_verification_bypass_default = defineRule({
     if (!VERIFY_PRESENT.test(file.text)) {
       for (const match of file.matches(JWT_DECODE)) {
         if (reported >= MAX_FINDINGS_PER_RULE) return;
+        const line = file.lineAt(match.index);
+        const following = [line, line + 1, line + 2, line + 3, line + 4, line + 5].map((n) => file.lineText(n)).join("\n");
+        if (!TRUSTED_CLAIM_USE.test(following)) continue;
         reported++;
         ctx.report({
-          title: "JWT decoded but never verified",
-          confidence: "medium",
-          explanation: `${file.path} decodes a JWT without any verification call in the same module. Decoding does not check the signature, so claims such as the user id or role can be set to anything by the caller.`,
+          title: "JWT decoded without verification, then trusted",
+          severity: "high",
+          confidence: "low",
+          blocker: false,
+          explanation: `${file.path} decodes a JWT with no verification call in the same module and then reads an identity or role claim from it. Decoding does not check the signature, so a caller can set those claims to anything.`,
           evidence: [file.evidenceAt(match.index, { length: match.text.length })]
         });
       }
@@ -4121,6 +4276,7 @@ var server_action_missing_auth_default = defineRule({
     return { applicable: true };
   },
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     if (file.role !== "server-actions") return;
     if (hasAuthSignal(file.text)) return;
     let reported = 0;
@@ -4161,6 +4317,7 @@ var supabase_service_role_exposure_default = defineRule({
     tags: ["supabase", "secrets", "owasp-a01"]
   },
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     let reported = 0;
     for (const match of file.matches(SERVICE_ROLE)) {
       if (reported >= MAX_FINDINGS_PER_RULE) return;
@@ -4209,6 +4366,7 @@ var unprotected_route_handler_default = defineRule({
     return { applicable: true };
   },
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     if (file.role !== "next-app-route" && file.role !== "next-pages-api") return;
     const routePath = toRoutePath(file.path);
     if (PUBLIC_BY_DESIGN.test(routePath)) return;
@@ -4274,6 +4432,7 @@ var unscoped_record_access_default = defineRule({
     return { applicable: true };
   },
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     if (file.role !== "next-app-route" && file.role !== "next-pages-api" && file.role !== "server-actions") {
       return;
     }
@@ -4332,6 +4491,7 @@ var unverified_webhook_default = defineRule({
     return { applicable: true };
   },
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     if (file.role !== "next-app-route" && file.role !== "next-pages-api") return;
     const routePath = toRoutePath(file.path);
     if (!WEBHOOK_PATH.test(routePath)) return;
@@ -4349,6 +4509,9 @@ var unverified_webhook_default = defineRule({
 });
 
 // src/rules/database/sql.ts
+function isSupabaseSql(filePath) {
+  return /(?:^|\/)supabase\//i.test(filePath);
+}
 function stripSqlComments(sql) {
   const out = new Array(sql.length);
   for (let i2 = 0; i2 < sql.length; i2++) out[i2] = sql[i2];
@@ -4439,7 +4602,7 @@ function findPolicies(sql) {
 }
 
 // src/rules/database/destructive-migration.ts
-var DESTRUCTIVE = /\b(drop\s+table|drop\s+column|drop\s+schema|drop\s+database|truncate(?:\s+table)?|alter\s+table\s+[\w".]+\s+drop\s+constraint)\b/gi;
+var DESTRUCTIVE = /\b(drop\s+table|drop\s+column|drop\s+schema|drop\s+database|truncate(?:\s+table)?|alter\s+table\s+[\w".]+\s+drop\s+column)\b/gi;
 var GUARDED = /if\s+exists/i;
 var destructive_migration_default = defineRule({
   meta: {
@@ -4464,6 +4627,7 @@ var destructive_migration_default = defineRule({
     return { applicable: true };
   },
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     if (file.ext !== ".sql") return;
     const sql = stripSqlComments(file.content);
     let reported = 0;
@@ -4563,7 +4727,7 @@ var permissive_rls_policy_default = defineRule({
   },
   fileExtensions: [".sql"],
   appliesTo(index) {
-    if (index.findFiles((f) => f.ext === ".sql").length === 0) {
+    if (index.findFiles((f) => f.ext === ".sql" && isSupabaseSql(f.path)).length === 0) {
       return {
         applicable: false,
         status: "unassessed",
@@ -4573,7 +4737,8 @@ var permissive_rls_policy_default = defineRule({
     return { applicable: true };
   },
   checkFile(file, ctx) {
-    if (file.ext !== ".sql") return;
+    if (isNonProductionFile(file)) return;
+    if (file.ext !== ".sql" || !isSupabaseSql(file.path)) return;
     const sql = stripSqlComments(file.content);
     let reported = 0;
     for (const policy of findPolicies(sql)) {
@@ -4609,7 +4774,7 @@ var prisma_raw_unsafe_default = defineRule({
     tags: ["sql-injection", "prisma", "owasp-a03"]
   },
   checkFile(file, ctx) {
-    if (file.role === "test") return;
+    if (isNonProductionFile(file)) return;
     let reported = 0;
     for (const match of file.matches(UNSAFE_RAW)) {
       if (reported >= MAX_FINDINGS_PER_RULE) return;
@@ -4627,7 +4792,7 @@ var prisma_raw_unsafe_default = defineRule({
 // src/rules/database/raw-sql-interpolation.ts
 var SQL_TEMPLATE = /`([^`]{0,600})`/g;
 var SQL_STATEMENT = /\b(?:select\s+[\s\S]{0,80}?\bfrom\b|insert\s+into\b|update\s+[a-z_"][\w".]*\s+set\b|delete\s+from\b|drop\s+table\b|alter\s+table\b)/i;
-var SAFE_TAGS = /(?:\$queryRaw|\$executeRaw|(?<![.\w$])sql|postgres|neon|db\.sql|drizzle\.sql|sqlTag|SQL)\s*$/;
+var SAFE_TAGS = /(?:\$queryRaw|\$executeRaw|\bsql|\bSQL|\bpostgres|\bneon|\bsqlTag)(?:<[^<>]{0,80}>)?\s*$/;
 var CONCAT_QUERY = /\b(?:query|execute|raw|run|all|get|prepare)\s*\(\s*['"][^'"\n]{0,200}(?:select|insert|update|delete)[^'"\n]{0,200}['"]\s*\+/gi;
 var raw_sql_interpolation_default = defineRule({
   meta: {
@@ -4647,6 +4812,7 @@ var raw_sql_interpolation_default = defineRule({
   },
   checkFile(file, ctx) {
     if (isNonProductionFile(file)) return;
+    const inRequestPath = file.role === "next-app-route" || file.role === "next-pages-api" || file.role === "server-actions" || file.role === "server-module";
     let reported = 0;
     for (const match of file.matches(SQL_TEMPLATE)) {
       if (reported >= MAX_FINDINGS_PER_RULE) return;
@@ -4657,7 +4823,10 @@ var raw_sql_interpolation_default = defineRule({
       if (SAFE_TAGS.test(before.trimEnd())) continue;
       reported++;
       ctx.report({
-        explanation: `${file.path} builds a SQL statement with template interpolation rather than parameters. Whatever is substituted becomes part of the query text, so a value such as "1 OR 1=1" changes what the statement does.`,
+        severity: inRequestPath ? "critical" : "high",
+        confidence: inRequestPath ? "medium" : "low",
+        blocker: inRequestPath,
+        explanation: inRequestPath ? `${file.path} builds a SQL statement with template interpolation rather than parameters, in code that serves requests. Whatever is substituted becomes part of the query text, so a value such as "1 OR 1=1" changes what the statement does.` : `${file.path} builds a SQL statement with template interpolation rather than parameters. If any interpolated value can be influenced by a request, it becomes part of the query text.`,
         evidence: [file.evidenceAt(match.index, { length: Math.min(match.text.length, 160) })]
       });
     }
@@ -4694,18 +4863,18 @@ var supabase_missing_rls_default = defineRule({
   },
   fileExtensions: [".sql"],
   appliesTo(index) {
-    const sqlFiles = index.findFiles((f) => f.ext === ".sql");
+    const sqlFiles = index.findFiles((f) => f.ext === ".sql" && isSupabaseSql(f.path));
     if (sqlFiles.length === 0) {
       return {
         applicable: false,
         status: "unassessed",
-        reason: "No SQL migration files were found, so table-level RLS could not be verified from source. Check policies in the Supabase dashboard."
+        reason: "No SQL under a supabase/ directory was found, so table-level RLS could not be verified from source. Check policies in the Supabase dashboard."
       };
     }
     return { applicable: true };
   },
   checkProject(ctx) {
-    const sqlFiles = ctx.index.findFiles((f) => f.ext === ".sql");
+    const sqlFiles = ctx.index.findFiles((f) => f.ext === ".sql" && isSupabaseSql(f.path));
     if (sqlFiles.length === 0) return;
     const enabled = /* @__PURE__ */ new Set();
     for (const file of sqlFiles) {
@@ -4733,7 +4902,7 @@ var supabase_missing_rls_default = defineRule({
 var PRISMA_MUTATION = /\.\s*(deleteMany|updateMany)\s*\(\s*(\)|\{)/g;
 var SUPABASE_MUTATION = /\.\s*from\s*\(\s*['"][\w.]+['"]\s*\)\s*\.\s*(delete|update)\s*\(/g;
 var MONGO_MUTATION = /\.\s*(deleteMany|updateMany|remove)\s*\(\s*\{\s*\}\s*\)/g;
-var SQL_UNFILTERED = /\b(?:delete\s+from|update)\s+[a-z_"][\w".]*\s*(?:set\s+[^;]{0,200})?;/gi;
+var SQL_UNFILTERED = /(?:^|;)\s*(?:delete\s+from|update)\s+[a-z_"][\w".]*\s*(?:set\s+[^;]{0,200})?;/gim;
 var FILTER = /\b(?:where|eq|neq|in|match|filter|gt|lt|gte|lte|is|like|ilike|contains|_id)\b/;
 var unbounded_mutation_default = defineRule({
   meta: {
@@ -4822,6 +4991,7 @@ var debug_mode_in_production_default = defineRule({
   },
   fileExtensions: [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts", ".json"],
   checkFile(file, ctx) {
+    if (/(?:^|\/)(?:examples?|templates?|fixtures?|__tests__|e2e)\//i.test(file.path)) return;
     let reported = 0;
     if (/^(?:src\/)?next\.config\.[cm]?[jt]s$/.test(file.path)) {
       for (const match of file.matches(NEXT_IGNORE_ERRORS)) {
@@ -4869,7 +5039,7 @@ var debug_mode_in_production_default = defineRule({
 
 // src/rules/reliability/hardcoded-environment-url.ts
 var LOCAL_URL = /['"`](https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::\d{2,5})?[^'"`\s]{0,120})['"`]/g;
-var ACCEPTABLE_CONTEXT = /(?:process\.env|import\.meta\.env|\?\?|\|\||NODE_ENV|isDev|development|fallback|default)/;
+var ACCEPTABLE_CONTEXT = /(?:process\.env|import\.meta\.env|\?\?|\|\||NODE_ENV|isDev|development|fallback|default|=\s*['"`]https?:\/\/(?:localhost|127)[^'"`]*['"`]\s*[,)}])/;
 var hardcoded_environment_url_default = defineRule({
   meta: {
     id: "reliability/hardcoded-environment-url",
@@ -4884,6 +5054,9 @@ var hardcoded_environment_url_default = defineRule({
   },
   checkFile(file, ctx) {
     if (isNonProductionFile(file)) return;
+    if (file.role !== "next-app-route" && file.role !== "next-pages-api" && file.role !== "server-actions" && file.role !== "next-middleware" && file.role !== "server-module") {
+      return;
+    }
     let reported = 0;
     for (const match of file.matchesText(LOCAL_URL)) {
       if (reported >= MAX_FINDINGS_PER_RULE) return;
@@ -4915,18 +5088,20 @@ var missing_fetch_timeout_default = defineRule({
     tags: ["timeouts", "resilience"]
   },
   appliesTo(index) {
-    if (!index.profile.hasServerCode) {
+    if (index.routeFiles.length === 0 && index.withRole("server-actions", "server-module").length === 0) {
       return {
         applicable: false,
         status: "not-applicable",
-        reason: "No server-side code was found; browser fetch calls are bounded by the user agent."
+        reason: "No request-handling code was found. A missing timeout matters where a hung upstream holds a client connection open."
       };
     }
     return { applicable: true };
   },
   checkFile(file, ctx) {
-    if (!file.isServer) return;
-    if (file.role === "test") return;
+    if (file.role !== "next-app-route" && file.role !== "next-pages-api" && file.role !== "server-actions" && file.role !== "next-middleware" && file.role !== "server-module") {
+      return;
+    }
+    if (isNonProductionFile(file)) return;
     if (TIMEOUT_SIGNAL.test(file.code)) return;
     let reported = 0;
     for (const match of file.matches(FETCH_CALL)) {
@@ -4978,13 +5153,10 @@ var missing_health_endpoint_default = defineRule({
       title: "No health or readiness endpoint was found",
       explanation: "No route matching /health, /healthz, /ready or /status was found, and no deployment config declares a health check. Orchestrators and uptime monitors have nothing to probe, so a wedged instance keeps receiving traffic.",
       evidence: [
-        {
-          file: "package.json",
-          line: 1,
-          column: 1,
-          snippet: ctx.index.profile.name ?? "project",
-          note: "No health endpoint found anywhere in the project"
-        }
+        projectEvidence(ctx.index, "package.json", {
+          anchor: /"(?:scripts|name)"/,
+          note: "no route matching /health, /healthz, /ready or /status exists"
+        })
       ]
     });
   }
@@ -5004,6 +5176,7 @@ var process_exit_in_request_path_default = defineRule({
     tags: ["availability"]
   },
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     if (file.role !== "next-app-route" && file.role !== "next-pages-api" && file.role !== "server-actions" && file.role !== "next-middleware") {
       return;
     }
@@ -5039,7 +5212,7 @@ var retry_without_backoff_default = defineRule({
   },
   checkFile(file, ctx) {
     if (!file.isServer) return;
-    if (file.role === "test") return;
+    if (isNonProductionFile(file)) return;
     let reported = 0;
     for (const match of file.matches(RETRY_LOOP)) {
       if (reported >= MAX_FINDINGS_PER_RULE) return;
@@ -5088,6 +5261,7 @@ var swallowed_error_default = defineRule({
       if (masked.length > 0) continue;
       const original = file.content.slice(open + 1, close);
       if (/\/\/|\/\*/.test(original)) continue;
+      if (/^\s*finally\s*\{/.test(file.code.slice(close + 1, close + 40))) continue;
       reported++;
       ctx.report({
         title: "Empty catch block discards the error",
@@ -5115,7 +5289,7 @@ var unhandled_promise_default = defineRule({
     category: "reliability",
     title: "Promise chain with no rejection handler",
     severity: "medium",
-    confidence: "medium",
+    confidence: "low",
     description: "A .then() chain has no .catch(). An unhandled rejection terminates the Node process by default since Node 15, so a single transient failure in a background task can take the whole server down - and the stack trace points at the promise, not at what called it.",
     remediation: 'Attach a .catch() that logs and recovers, or await the promise inside a try/catch. For fire-and-forget work, make the "ignore failures" decision explicit with .catch(err => logger.warn(...)) rather than leaving it implicit.',
     references: ["https://nodejs.org/api/cli.html#--unhandled-rejectionsmode"],
@@ -5129,8 +5303,8 @@ var unhandled_promise_default = defineRule({
       const statement = statementAround(file.code, match.index);
       if (statement === null) continue;
       if (/\.\s*catch\s*\(|\.\s*finally\s*\(/.test(statement)) continue;
-      if (/\bawait\b/.test(statement)) continue;
-      if (/\breturn\b/.test(statement)) continue;
+      if (/\bawait\b|\breturn\b|\byield\b/.test(statement)) continue;
+      if (/(?:^|[\s(,[])(?:const|let|var)\s|=[^=>]/.test(statement)) continue;
       reported++;
       ctx.report({
         explanation: `${file.path} starts a .then() chain that is neither awaited nor given a .catch(). A rejection here becomes an unhandled rejection and, by default, crashes the process.`,
@@ -5141,18 +5315,30 @@ var unhandled_promise_default = defineRule({
 });
 function statementAround(code, offset) {
   let start = offset;
+  let depth = 0;
   while (start > 0) {
     const ch = code[start - 1];
-    if (ch === ";" || ch === "{" || ch === "}") break;
+    if (ch === ")" || ch === "}" || ch === "]") depth++;
+    else if (ch === "(" || ch === "{" || ch === "[") {
+      if (depth === 0) break;
+      depth--;
+    } else if ((ch === ";" || ch === "\n") && depth === 0) {
+      if (ch === ";") break;
+      const before = code.slice(Math.max(0, start - 200), start - 1).trimEnd();
+      if (/[;{}]$/.test(before) || before.length === 0) break;
+    }
     start--;
+    if (offset - start > 4e3) break;
   }
   let end = offset;
-  let depth = 0;
-  while (end < code.length && end < offset + 1200) {
+  depth = 0;
+  while (end < code.length && end < offset + 4e3) {
     const ch = code[end];
     if (ch === "(" || ch === "{" || ch === "[") depth++;
-    else if (ch === ")" || ch === "}" || ch === "]") depth--;
-    else if (ch === ";" && depth <= 0) break;
+    else if (ch === ")" || ch === "}" || ch === "]") {
+      if (depth === 0) break;
+      depth--;
+    } else if (ch === ";" && depth <= 0) break;
     end++;
   }
   return code.slice(start, Math.min(end + 1, code.length));
@@ -5206,18 +5392,17 @@ var ci_missing_checks_default = defineRule({
   }
 });
 
-// src/rules/testing/focused-or-skipped-test.ts
+// src/rules/testing/focused-test.ts
 var FOCUSED = /\b(?:describe|it|test|context|suite)\s*\.\s*only\s*\(|\bf(?:describe|it)\s*\(/g;
-var SKIPPED = /\b(?:describe|it|test|context|suite)\s*\.\s*(?:skip|todo)\s*\(|\bx(?:describe|it)\s*\(/g;
-var focused_or_skipped_test_default = defineRule({
+var focused_test_default = defineRule({
   meta: {
-    id: "testing/focused-or-skipped-test",
+    id: "testing/focused-test",
     category: "testing",
-    title: "Focused or skipped test committed",
+    title: "Focused test committed",
     severity: "high",
     confidence: "high",
-    description: "A .only() test silently disables every other test in its file - the suite still reports success, having run one assertion. A .skip() leaves a test that looks like coverage in the file listing but never executes.",
-    remediation: "Remove .only before committing and add a lint rule that fails on it. For a skipped test, either fix it or delete it and open an issue; a permanently skipped test is documentation that has stopped being true.",
+    description: "A .only() test silently disables every other test in its file. The suite still reports success, having run a single assertion - which is worse than a failing build, because nothing looks wrong.",
+    remediation: "Remove .only before committing, and add an ESLint rule (no-only-tests) or a grep in CI so it cannot happen again.",
     tags: ["testing", "ci"]
   },
   appliesTo(index) {
@@ -5237,21 +5422,7 @@ var focused_or_skipped_test_default = defineRule({
       if (reported >= MAX_FINDINGS_PER_RULE) return;
       reported++;
       ctx.report({
-        title: "Focused test disables the rest of its file",
-        severity: "high",
         explanation: `${file.path} contains ${match.text.trim()}, so only that test runs. Every other test in the file is skipped and CI still reports success.`,
-        evidence: [file.evidenceAt(match.index, { length: match.text.length })]
-      });
-    }
-    for (const match of file.matches(SKIPPED)) {
-      if (reported >= MAX_FINDINGS_PER_RULE) return;
-      reported++;
-      ctx.report({
-        title: "Skipped test committed",
-        severity: "low",
-        confidence: "high",
-        explanation: `${file.path} contains ${match.text.trim()}. The test appears in the file but never runs, so the behaviour it describes is unverified.`,
-        remediation: "Fix and re-enable the test, or delete it and track the gap in an issue.",
         evidence: [file.evidenceAt(match.index, { length: match.text.length })]
       });
     }
@@ -5308,13 +5479,10 @@ var no_test_infrastructure_default = defineRule({
         explanation: "The project declares a test runner and a test script, but no test or spec files were found. The command will pass trivially, which is worse than having no tests at all because CI reports green.",
         remediation: "Write the first tests for the highest-risk paths, or remove the test script so the gap is visible.",
         evidence: [
-          {
-            file: "package.json",
-            line: 1,
-            column: 1,
-            snippet: '"scripts": { "test": ... }',
-            note: "Test runner configured, zero test files found"
-          }
+          projectEvidence(ctx.index, "package.json", {
+            anchor: /"scripts"/,
+            note: "a test script is declared but no test files exist"
+          })
         ]
       });
       return;
@@ -5322,13 +5490,10 @@ var no_test_infrastructure_default = defineRule({
     ctx.report({
       explanation: `No test files and no test runner were found across ${ctx.index.files.length} scanned files. Nothing in this repository verifies that it works.`,
       evidence: [
-        {
-          file: "package.json",
-          line: 1,
-          column: 1,
-          snippet: ctx.index.profile.name ?? "project",
-          note: "No test runner in dependencies, no test files in the tree"
-        }
+        projectEvidence(ctx.index, "package.json", {
+          anchor: /"(?:scripts|devDependencies)"/,
+          note: "no test runner declared and no test files in the tree"
+        })
       ]
     });
   }
@@ -5499,17 +5664,17 @@ var missing_error_boundary_default = defineRule({
     if (ctx.index.hasDependency("react-error-boundary")) return;
     if (ctx.index.files.some((f) => ERROR_BOUNDARY.test(f.code))) return;
     const isAppRouter = ctx.index.hasFramework("next-app-router");
+    const rootLayout = ctx.index.withRole("next-app-special").find((f) => /^(?:src\/)?app\/layout\.[cm]?[jt]sx?$/.test(f.path));
     ctx.report({
       explanation: isAppRouter ? "This App Router project has no error.tsx or global-error.tsx anywhere, and no error boundary component. An exception thrown while rendering any route replaces the page with a blank screen." : "No error boundary was found in this React application. An exception thrown during render unmounts the whole tree and leaves the user with a blank page.",
       remediation: isAppRouter ? "Add app/error.tsx for route-level recovery and app/global-error.tsx as a last resort, and report the error from each one." : "Wrap the application root in an error boundary - react-error-boundary is a small, well-maintained option - and report caught errors to your monitoring service.",
+      // Cite the root layout when there is one - that is where a global error
+      // boundary belongs - and fall back to the manifest otherwise. Pointing
+      // at a directory produces a location no tool can open.
       evidence: [
-        {
-          file: ctx.index.hasFramework("next") ? "app" : "package.json",
-          line: 1,
-          column: 1,
-          snippet: "No error boundary found",
-          note: isAppRouter ? "no error.tsx / global-error.tsx in any route segment" : "no error boundary component"
-        }
+        projectEvidence(ctx.index, rootLayout?.path ?? "package.json", {
+          note: isAppRouter ? "no error.tsx or global-error.tsx in any route segment" : "no error boundary component anywhere in the project"
+        })
       ]
     });
   }
@@ -5577,13 +5742,10 @@ var no_error_monitoring_default = defineRule({
     ctx.report({
       explanation: "No error monitoring, tracing or exception-reporting SDK is declared in package.json. Production exceptions will not be reported anywhere you can see them.",
       evidence: [
-        {
-          file: "package.json",
-          line: 1,
-          column: 1,
-          snippet: '"dependencies": { ... }',
-          note: "No error monitoring SDK found"
-        }
+        projectEvidence(ctx.index, "package.json", {
+          anchor: /"dependencies"/,
+          note: "no error monitoring SDK among the declared dependencies"
+        })
       ]
     });
   }
@@ -5615,6 +5777,7 @@ var silent_catch_in_handler_default = defineRule({
     return { applicable: true };
   },
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     if (file.role !== "next-app-route" && file.role !== "next-pages-api" && file.role !== "server-actions") {
       return;
     }
@@ -5672,7 +5835,7 @@ var heavy_client_import_default = defineRule({
   },
   checkFile(file, ctx) {
     if (!file.isClient && !file.isClientComponent) return;
-    if (file.role === "test") return;
+    if (isNonProductionFile(file)) return;
     let reported = 0;
     for (const match of file.matches(BARE_IMPORT)) {
       if (reported >= MAX_FINDINGS_PER_RULE) return;
@@ -5717,6 +5880,7 @@ var n_plus_one_query_default = defineRule({
     return { applicable: true };
   },
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     if (!file.isServer || file.role === "test") return;
     let reported = 0;
     for (const match of file.matches(LOOP)) {
@@ -5738,205 +5902,6 @@ var n_plus_one_query_default = defineRule({
     }
   }
 });
-
-// src/rules/performance/next-unoptimized-image.ts
-var IMG_TAG = /<img\s[^>]{0,400}>/g;
-var REMOTE_OR_LOCAL_SRC = /\ssrc\s*=\s*["'{]/;
-var next_unoptimized_image_default = defineRule({
-  meta: {
-    id: "performance/next-unoptimized-image",
-    category: "performance",
-    title: "Raw <img> tag in a Next.js application",
-    severity: "low",
-    confidence: "medium",
-    requiresFrameworks: ["next"],
-    description: "A plain <img> tag skips the Next.js image pipeline: no automatic resizing for the viewport, no modern format negotiation, no lazy loading, and no width/height reservation - which means the image contributes directly to layout shift as it loads.",
-    remediation: "Use next/image with explicit width and height (or fill with a sized parent). Configure remotePatterns in next.config for external hosts. Keep a raw <img> only where the pipeline genuinely cannot help, such as inline SVG data URIs.",
-    references: ["https://nextjs.org/docs/app/api-reference/components/image"],
-    tags: ["images", "core-web-vitals"]
-  },
-  checkFile(file, ctx) {
-    if (!file.isJsx) return;
-    if (file.role === "test") return;
-    if (/from\s+['"]next\/image['"]/.test(file.content)) return;
-    let reported = 0;
-    for (const match of file.matches(IMG_TAG)) {
-      if (reported >= MAX_FINDINGS_PER_RULE) return;
-      if (!REMOTE_OR_LOCAL_SRC.test(match.text)) continue;
-      if (/data:image\//.test(match.text)) continue;
-      reported++;
-      ctx.report({
-        explanation: `${file.path} renders a raw <img>. Next.js will not resize, reformat or lazy-load it, and without width and height it shifts the layout as it loads.`,
-        evidence: [file.evidenceAt(match.index, { length: Math.min(match.text.length, 140) })]
-      });
-    }
-  }
-});
-
-// src/rules/performance/sync-io-in-request-path.ts
-var SYNC_FS = /\b(?:fs\s*\.\s*)?(readFileSync|writeFileSync|appendFileSync|readdirSync|statSync|existsSync|mkdirSync|unlinkSync|copyFileSync|rmSync)\s*\(/g;
-var SYNC_CRYPTO = /\b(?:crypto\s*\.\s*)?(pbkdf2Sync|scryptSync|randomBytes\s*\(\s*\d{4,})\s*\(?/g;
-var SYNC_HASH = /\bbcrypt\s*\.\s*(?:hashSync|compareSync)\s*\(/g;
-var SYNC_EXEC = /\bexecSync\s*\(|\bspawnSync\s*\(/g;
-var sync_io_in_request_path_default = defineRule({
-  meta: {
-    id: "performance/sync-io-in-request-path",
-    category: "performance",
-    title: "Synchronous I/O in a request handler",
-    severity: "high",
-    confidence: "high",
-    description: "Node runs JavaScript on a single thread. A synchronous filesystem read, a synchronous hash or a synchronous child process blocks that thread completely: every other request being served by the same instance waits, including health checks. Latency degrades for everyone, not just the caller who triggered it.",
-    remediation: "Use the promise-based equivalents - fs/promises, crypto.scrypt with a callback, bcrypt.hash - so the event loop stays free. For values that never change, read them once at module load rather than per request.",
-    references: ["https://nodejs.org/en/learn/asynchronous-work/dont-block-the-event-loop"],
-    tags: ["event-loop", "latency"]
-  },
-  appliesTo(index) {
-    if (index.routeFiles.length === 0 && index.serverFiles.length === 0) {
-      return {
-        applicable: false,
-        status: "not-applicable",
-        reason: "No server-side request handlers were found in this project."
-      };
-    }
-    return { applicable: true };
-  },
-  checkFile(file, ctx) {
-    if (file.role !== "next-app-route" && file.role !== "next-pages-api" && file.role !== "server-actions" && file.role !== "next-middleware" && file.role !== "server-module") {
-      return;
-    }
-    let reported = 0;
-    const emit = (index, length, what, why) => {
-      if (reported >= MAX_FINDINGS_PER_RULE) return;
-      reported++;
-      ctx.report({
-        title: `${what} blocks the event loop in a request handler`,
-        explanation: `${file.path} calls ${what} while serving requests. ${why}`,
-        evidence: [file.evidenceAt(index, { length })]
-      });
-    };
-    for (const match of file.matches(SYNC_FS)) {
-      const name = match.groups[0] ?? "a synchronous fs call";
-      emit(
-        match.index,
-        match.text.length,
-        `${name}()`,
-        "Every concurrent request on this instance stalls until the disk operation completes."
-      );
-    }
-    for (const match of file.matches(SYNC_CRYPTO)) {
-      emit(
-        match.index,
-        match.text.length,
-        `${match.groups[0] ?? "a synchronous crypto call"}()`,
-        "Key derivation is deliberately slow; running it synchronously freezes the process for its full duration."
-      );
-    }
-    for (const match of file.matches(SYNC_HASH)) {
-      emit(
-        match.index,
-        match.text.length,
-        match.text.trim().replace(/\($/, "()"),
-        "bcrypt is intentionally expensive; the synchronous form blocks every other request for tens of milliseconds."
-      );
-    }
-    for (const match of file.matches(SYNC_EXEC)) {
-      emit(
-        match.index,
-        match.text.length,
-        match.text.trim().replace(/\($/, "()"),
-        "The whole process waits for the child to exit before it can serve anything else."
-      );
-    }
-  }
-});
-
-// src/rules/performance/unbounded-query.ts
-var PRISMA_FIND_MANY = /\.\s*findMany\s*\(\s*(\)|\{)/g;
-var SUPABASE_SELECT = /\.\s*from\s*\(\s*['"][\w.]+['"]\s*\)\s*\.\s*select\s*\(/g;
-var MONGO_FIND = /\.\s*find\s*\(\s*(?:\{\s*\}\s*)?\)/g;
-var SQL_SELECT_ALL = /\bselect\s+\*\s+from\s+[\w".]+\s*(?:;|$)/gi;
-var BOUND = /\b(?:take|limit|first|top|range|maxResults|pageSize|cursor|skip|offset|paginate|count)\b/;
-var unbounded_query_default = defineRule({
-  meta: {
-    id: "performance/unbounded-query",
-    category: "performance",
-    title: "Query returns every row with no limit",
-    severity: "medium",
-    confidence: "medium",
-    description: "A query fetches an entire table with no limit or pagination. It is fast with the fifty rows in development and it is an out-of-memory crash with the two million rows in production - and the failure arrives suddenly, on a table that had been fine for months.",
-    remediation: "Add a limit to every list query and paginate the results - cursor pagination for infinite scroll, offset pagination for numbered pages. Select only the columns you render rather than the whole row.",
-    tags: ["queries", "scalability"]
-  },
-  fileExtensions: [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts", ".sql"],
-  appliesTo(index) {
-    if (!index.hasFramework("prisma", "drizzle", "supabase", "mongoose") && index.findFiles((f) => f.ext === ".sql").length === 0) {
-      return {
-        applicable: false,
-        status: "not-applicable",
-        reason: "No database client or SQL files were detected in this project."
-      };
-    }
-    return { applicable: true };
-  },
-  checkFile(file, ctx) {
-    if (file.role === "test") return;
-    let reported = 0;
-    const emit = (index, length, title, detail) => {
-      if (reported >= MAX_FINDINGS_PER_RULE) return;
-      reported++;
-      ctx.report({ title, explanation: detail, evidence: [file.evidenceAt(index, { length })] });
-    };
-    for (const match of file.matches(PRISMA_FIND_MANY)) {
-      const region = callArguments(file, match.index);
-      if (region === null || BOUND.test(region)) continue;
-      emit(
-        match.index,
-        match.text.length,
-        "findMany() has no take or cursor",
-        `${file.path} calls findMany() without take, skip or a cursor, so it loads the whole table into memory.`
-      );
-    }
-    for (const match of file.matchesText(SUPABASE_SELECT)) {
-      const end = file.content.indexOf(";", match.index);
-      const statement = file.content.slice(match.index, end === -1 ? match.index + 400 : end);
-      if (BOUND.test(statement)) continue;
-      if (/\.\s*single\s*\(|\.\s*maybeSingle\s*\(|\.\s*eq\s*\(/.test(statement)) continue;
-      emit(
-        match.index,
-        match.text.length,
-        "Supabase select() has no range or limit",
-        `${file.path} selects from a table with no .limit() or .range() and no filter, which returns every row the policy allows.`
-      );
-    }
-    for (const match of file.matches(MONGO_FIND)) {
-      const region = statementFrom(file, match.index);
-      if (BOUND.test(region)) continue;
-      emit(
-        match.index,
-        match.text.length,
-        "Collection scanned with no limit",
-        `${file.path} calls find() with an empty filter and no limit, returning the entire collection.`
-      );
-    }
-    if (file.ext === ".sql") {
-      for (const match of file.matchesText(SQL_SELECT_ALL)) {
-        emit(
-          match.index,
-          Math.min(match.text.length, 120),
-          "SELECT * with no LIMIT",
-          `${file.path} contains an unbounded SELECT *.`
-        );
-      }
-    }
-  }
-});
-function callArguments(file, offset) {
-  return callArgumentObject(file, offset);
-}
-function statementFrom(file, offset) {
-  const end = file.content.indexOf(";", offset);
-  return file.content.slice(offset, end === -1 ? offset + 300 : end);
-}
 
 // src/rules/accessibility/jsx.ts
 function tagPattern(tags) {
@@ -6004,6 +5969,233 @@ function attributeValue(attributes, name) {
 function hasSpread(attributes) {
   return /\{\s*\.\.\./.test(attributes);
 }
+function closingTagEnd(content, openingTagEnd, tag) {
+  const open = new RegExp(`<${tag}(?=[\\s/>])`, "g");
+  const close = new RegExp(`</${tag}\\s*>`, "g");
+  let depth = 1;
+  let cursor = openingTagEnd;
+  for (let guard = 0; guard < 500; guard++) {
+    open.lastIndex = cursor;
+    close.lastIndex = cursor;
+    const nextOpen = open.exec(content);
+    const nextClose = close.exec(content);
+    if (nextClose === null) return content.length;
+    if (nextOpen !== null && nextOpen.index < nextClose.index) {
+      depth++;
+      cursor = nextOpen.index + nextOpen[0].length;
+      continue;
+    }
+    depth--;
+    cursor = nextClose.index + nextClose[0].length;
+    if (depth === 0) return cursor;
+  }
+  return content.length;
+}
+
+// src/rules/performance/next-unoptimized-image.ts
+var REMOTE_OR_LOCAL_SRC = /\ssrc\s*=\s*["'{]/;
+var next_unoptimized_image_default = defineRule({
+  meta: {
+    id: "performance/next-unoptimized-image",
+    category: "performance",
+    title: "Raw <img> tag in a Next.js application",
+    severity: "low",
+    confidence: "medium",
+    requiresFrameworks: ["next"],
+    description: "A plain <img> tag skips the Next.js image pipeline: no automatic resizing for the viewport, no modern format negotiation, no lazy loading, and no width/height reservation - which means the image contributes directly to layout shift as it loads.",
+    remediation: "Use next/image with explicit width and height (or fill with a sized parent). Configure remotePatterns in next.config for external hosts. Keep a raw <img> only where the pipeline genuinely cannot help, such as inline SVG data URIs.",
+    references: ["https://nextjs.org/docs/app/api-reference/components/image"],
+    tags: ["images", "core-web-vitals"]
+  },
+  checkFile(file, ctx) {
+    if (!file.isJsx) return;
+    if (isNonProductionFile(file)) return;
+    if (/from\s+['"]next\/image['"]/.test(file.content)) return;
+    let reported = 0;
+    for (const element of findElements(file, ["img"])) {
+      if (reported >= MAX_FINDINGS_PER_RULE) return;
+      if (!REMOTE_OR_LOCAL_SRC.test(element.text)) continue;
+      if (/data:image\//.test(element.text)) continue;
+      const hasWidth = attributeValue(element.attributes, "width") !== null;
+      const hasHeight = attributeValue(element.attributes, "height") !== null;
+      const hasAspect = /aspect-|w-\d|h-\d|size-\d/.test(element.attributes);
+      if (hasWidth && hasHeight || hasAspect) continue;
+      reported++;
+      ctx.report({
+        explanation: `${file.path} renders a raw <img> with no width and height. The browser cannot reserve space for it, so the page shifts as it loads, and Next.js will not resize, reformat or lazy-load it either.`,
+        evidence: [
+          file.evidenceAt(element.start, { length: Math.min(element.end - element.start, 140) })
+        ]
+      });
+    }
+  }
+});
+
+// src/rules/performance/sync-io-in-request-path.ts
+var SYNC_FS = /\b(?:fs\s*\.\s*)?(readFileSync|writeFileSync|appendFileSync|readdirSync|statSync|existsSync|mkdirSync|unlinkSync|copyFileSync|rmSync)\s*\(/g;
+var SYNC_CRYPTO = /\b(?:crypto\s*\.\s*)?(pbkdf2Sync|scryptSync|randomBytes\s*\(\s*\d{4,})\s*\(?/g;
+var SYNC_HASH = /\bbcrypt\s*\.\s*(?:hashSync|compareSync)\s*\(/g;
+var SYNC_EXEC = /\bexecSync\s*\(|\bspawnSync\s*\(/g;
+var sync_io_in_request_path_default = defineRule({
+  meta: {
+    id: "performance/sync-io-in-request-path",
+    category: "performance",
+    title: "Synchronous I/O in a request handler",
+    severity: "high",
+    confidence: "high",
+    description: "Node runs JavaScript on a single thread. A synchronous filesystem read, a synchronous hash or a synchronous child process blocks that thread completely: every other request being served by the same instance waits, including health checks. Latency degrades for everyone, not just the caller who triggered it.",
+    remediation: "Use the promise-based equivalents - fs/promises, crypto.scrypt with a callback, bcrypt.hash - so the event loop stays free. For values that never change, read them once at module load rather than per request.",
+    references: ["https://nodejs.org/en/learn/asynchronous-work/dont-block-the-event-loop"],
+    tags: ["event-loop", "latency"]
+  },
+  appliesTo(index) {
+    if (index.routeFiles.length === 0 && index.serverFiles.length === 0) {
+      return {
+        applicable: false,
+        status: "not-applicable",
+        reason: "No server-side request handlers were found in this project."
+      };
+    }
+    return { applicable: true };
+  },
+  checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
+    const isRouteHandler = file.role === "next-app-route" || file.role === "next-pages-api" || file.role === "server-actions" || file.role === "next-middleware";
+    const isAppServerModule = file.role === "server-module" && isDeployableApp(ctx.index);
+    if (!isRouteHandler && !isAppServerModule) return;
+    let reported = 0;
+    const emit = (index, length, what, why) => {
+      if (reported >= MAX_FINDINGS_PER_RULE) return;
+      reported++;
+      ctx.report({
+        title: `${what} blocks the event loop in a request handler`,
+        explanation: `${file.path} calls ${what} while serving requests. ${why}`,
+        evidence: [file.evidenceAt(index, { length })]
+      });
+    };
+    for (const match of file.matches(SYNC_FS)) {
+      const name = match.groups[0] ?? "a synchronous fs call";
+      emit(
+        match.index,
+        match.text.length,
+        `${name}()`,
+        "Every concurrent request on this instance stalls until the disk operation completes."
+      );
+    }
+    for (const match of file.matches(SYNC_CRYPTO)) {
+      emit(
+        match.index,
+        match.text.length,
+        `${match.groups[0] ?? "a synchronous crypto call"}()`,
+        "Key derivation is deliberately slow; running it synchronously freezes the process for its full duration."
+      );
+    }
+    for (const match of file.matches(SYNC_HASH)) {
+      emit(
+        match.index,
+        match.text.length,
+        match.text.trim().replace(/\($/, "()"),
+        "bcrypt is intentionally expensive; the synchronous form blocks every other request for tens of milliseconds."
+      );
+    }
+    for (const match of file.matches(SYNC_EXEC)) {
+      emit(
+        match.index,
+        match.text.length,
+        match.text.trim().replace(/\($/, "()"),
+        "The whole process waits for the child to exit before it can serve anything else."
+      );
+    }
+  }
+});
+
+// src/rules/performance/unbounded-query.ts
+var PRISMA_FIND_MANY = /\.\s*findMany\s*\(\s*(\)|\{)/g;
+var SUPABASE_SELECT = /\.\s*from\s*\(\s*['"][\w.]+['"]\s*\)\s*\.\s*select\s*\(/g;
+var MONGO_FIND = /\.\s*find\s*\(\s*(?:\{\s*\}\s*)?\)/g;
+var SQL_SELECT_ALL = /\bselect\s+\*\s+from\s+[\w".]+\s*(?:;|$)/gi;
+var BOUND = /\b(?:take|limit|first|top|range|maxResults|pageSize|cursor|skip|offset|paginate|count|where|filter)\b/;
+var unbounded_query_default = defineRule({
+  meta: {
+    id: "performance/unbounded-query",
+    category: "performance",
+    title: "Query returns every row with no limit",
+    severity: "medium",
+    confidence: "medium",
+    description: "A query fetches an entire table with no limit or pagination. It is fast with the fifty rows in development and it is an out-of-memory crash with the two million rows in production - and the failure arrives suddenly, on a table that had been fine for months.",
+    remediation: "Add a limit to every list query and paginate the results - cursor pagination for infinite scroll, offset pagination for numbered pages. Select only the columns you render rather than the whole row.",
+    tags: ["queries", "scalability"]
+  },
+  fileExtensions: [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts", ".sql"],
+  appliesTo(index) {
+    if (!index.hasFramework("prisma", "drizzle", "supabase", "mongoose") && index.findFiles((f) => f.ext === ".sql").length === 0) {
+      return {
+        applicable: false,
+        status: "not-applicable",
+        reason: "No database client or SQL files were detected in this project."
+      };
+    }
+    return { applicable: true };
+  },
+  checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
+    let reported = 0;
+    const emit = (index, length, title, detail) => {
+      if (reported >= MAX_FINDINGS_PER_RULE) return;
+      reported++;
+      ctx.report({ title, explanation: detail, evidence: [file.evidenceAt(index, { length })] });
+    };
+    for (const match of file.matches(PRISMA_FIND_MANY)) {
+      const region = callArguments(file, match.index);
+      if (region === null || BOUND.test(region)) continue;
+      emit(
+        match.index,
+        match.text.length,
+        "findMany() has no take or cursor",
+        `${file.path} calls findMany() without take, skip or a cursor, so it loads the whole table into memory.`
+      );
+    }
+    for (const match of file.matchesText(SUPABASE_SELECT)) {
+      const end = file.content.indexOf(";", match.index);
+      const statement = file.content.slice(match.index, end === -1 ? match.index + 400 : end);
+      if (BOUND.test(statement)) continue;
+      if (/\.\s*single\s*\(|\.\s*maybeSingle\s*\(|\.\s*eq\s*\(/.test(statement)) continue;
+      emit(
+        match.index,
+        match.text.length,
+        "Supabase select() has no range or limit",
+        `${file.path} selects from a table with no .limit() or .range() and no filter, which returns every row the policy allows.`
+      );
+    }
+    for (const match of file.matches(MONGO_FIND)) {
+      const region = statementFrom(file, match.index);
+      if (BOUND.test(region)) continue;
+      emit(
+        match.index,
+        match.text.length,
+        "Collection scanned with no limit",
+        `${file.path} calls find() with an empty filter and no limit, returning the entire collection.`
+      );
+    }
+    if (file.ext === ".sql") {
+      for (const match of file.matchesText(SQL_SELECT_ALL)) {
+        emit(
+          match.index,
+          Math.min(match.text.length, 120),
+          "SELECT * with no LIMIT",
+          `${file.path} contains an unbounded SELECT *.`
+        );
+      }
+    }
+  }
+});
+function callArguments(file, offset) {
+  return callArgumentObject(file, offset);
+}
+function statementFrom(file, offset) {
+  const end = file.content.indexOf(";", offset);
+  return file.content.slice(offset, end === -1 ? offset + 300 : end);
+}
 
 // src/rules/accessibility/form-control-missing-label.ts
 var UNLABELLED_TYPES = /^(?:hidden|submit|reset|button|image)$/i;
@@ -6022,14 +6214,19 @@ var form_control_missing_label_default = defineRule({
     ],
     tags: ["wcag-3.3.2", "a11y", "forms"]
   },
+  appliesTo: requiresRenderedUi,
   checkFile(file, ctx) {
-    if (!file.isJsx || file.role === "test") return;
+    if (!file.isJsx || isNonProductionFile(file)) return;
     let reported = 0;
     const labelledIds = /* @__PURE__ */ new Set();
     for (const label of findElements(file, ["label", "Label"])) {
       const htmlFor = attributeValue(label.attributes, "htmlFor") ?? attributeValue(label.attributes, "for");
       if (htmlFor !== null && htmlFor.length > 0) labelledIds.add(htmlFor.trim());
     }
+    const labelRanges = findElements(file, ["label", "Label"]).map((label) => ({
+      start: label.start,
+      end: closingTagEnd(file.content, label.end, label.tag)
+    }));
     for (const element of findElements(file, ["input", "textarea", "select"])) {
       if (reported >= MAX_FINDINGS_PER_RULE) return;
       if (hasSpread(element.attributes)) continue;
@@ -6038,6 +6235,13 @@ var form_control_missing_label_default = defineRule({
       if (attributeValue(element.attributes, "aria-label") !== null) continue;
       if (attributeValue(element.attributes, "aria-labelledby") !== null) continue;
       if (attributeValue(element.attributes, "title") !== null) continue;
+      if (attributeValue(element.attributes, "hidden") !== null) continue;
+      if (attributeValue(element.attributes, "aria-hidden") !== null) continue;
+      const tabIndex = attributeValue(element.attributes, "tabIndex");
+      if (tabIndex !== null && Number(tabIndex.replace(/[{}\s"']/g, "")) < 0) continue;
+      if (labelRanges.some((range) => element.start > range.start && element.start < range.end)) {
+        continue;
+      }
       const id = attributeValue(element.attributes, "id");
       if (id !== null && labelledIds.has(id.trim())) continue;
       if (id !== null && id.includes("{")) continue;
@@ -6070,8 +6274,9 @@ var img_missing_alt_default = defineRule({
     ],
     tags: ["wcag-1.1.1", "a11y"]
   },
+  appliesTo: requiresRenderedUi,
   checkFile(file, ctx) {
-    if (!file.isJsx || file.role === "test") return;
+    if (!file.isJsx || isNonProductionFile(file)) return;
     let reported = 0;
     for (const element of findElements(file, ["img", "Image"])) {
       if (reported >= MAX_FINDINGS_PER_RULE) return;
@@ -6108,8 +6313,9 @@ var inaccessible_interactive_element_default = defineRule({
     ],
     tags: ["wcag-4.1.2", "a11y"]
   },
+  appliesTo: requiresRenderedUi,
   checkFile(file, ctx) {
-    if (!file.isJsx || file.role === "test") return;
+    if (!file.isJsx || isNonProductionFile(file)) return;
     let reported = 0;
     for (const element of findElements(file, ["button", "a"])) {
       if (reported >= MAX_FINDINGS_PER_RULE) return;
@@ -6178,8 +6384,9 @@ var invalid_anchor_default = defineRule({
     ],
     tags: ["wcag-4.1.2", "a11y", "semantics"]
   },
+  appliesTo: requiresRenderedUi,
   checkFile(file, ctx) {
-    if (!file.isJsx || file.role === "test") return;
+    if (!file.isJsx || isNonProductionFile(file)) return;
     let reported = 0;
     for (const element of findElements(file, ["a"])) {
       if (reported >= MAX_FINDINGS_PER_RULE) return;
@@ -6228,6 +6435,7 @@ var missing_html_lang_default = defineRule({
     return { applicable: true };
   },
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     if (!file.isJsx) return;
     if (file.role !== "next-app-special" && !/_document\.[cm]?[jt]sx?$/.test(file.path)) return;
     for (const element of findElements(file, ["html", "Html"])) {
@@ -6271,8 +6479,9 @@ var non_interactive_click_handler_default = defineRule({
     ],
     tags: ["wcag-2.1.1", "a11y", "keyboard"]
   },
+  appliesTo: requiresRenderedUi,
   checkFile(file, ctx) {
-    if (!file.isJsx || file.role === "test") return;
+    if (!file.isJsx || isNonProductionFile(file)) return;
     let reported = 0;
     for (const element of findElements(file, NON_INTERACTIVE)) {
       if (reported >= MAX_FINDINGS_PER_RULE) return;
@@ -6328,8 +6537,9 @@ var positive_tabindex_default = defineRule({
     ],
     tags: ["wcag-2.4.3", "a11y", "keyboard"]
   },
+  appliesTo: requiresRenderedUi,
   checkFile(file, ctx) {
-    if (!file.isJsx || file.role === "test") return;
+    if (!file.isJsx || isNonProductionFile(file)) return;
     let reported = 0;
     for (const element of findElements(file, ELEMENTS)) {
       if (reported >= MAX_FINDINGS_PER_RULE) return;
@@ -6368,14 +6578,20 @@ var ai_key_exposed_to_client_default = defineRule({
     ],
     tags: ["cost", "secrets", "llm"]
   },
+  appliesTo: requiresModelSdk,
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     let reported = 0;
+    const isApplication = isDeployableApp(ctx.index);
     for (const match of file.matches(BROWSER_ESCAPE_HATCH)) {
       if (reported >= MAX_FINDINGS_PER_RULE) return;
       reported++;
       ctx.report({
         title: "SDK client constructed with dangerouslyAllowBrowser: true",
-        explanation: `${file.path} disables the SDK guard that prevents it from running in a browser. That guard exists because doing so puts your provider API key in code the user can read.`,
+        severity: isApplication ? "critical" : "high",
+        confidence: isApplication ? "high" : "low",
+        blocker: isApplication,
+        explanation: isApplication ? `${file.path} disables the SDK guard that prevents it from running in a browser. That guard exists because doing so puts your provider API key in code the user can read.` : `${file.path} sets dangerouslyAllowBrowser. In a library this may be a deliberate pass-through for callers who proxy the request, but any application reaching this path with a real key exposes it to the browser.`,
         evidence: [file.evidenceAt(match.index, { length: match.text.length })]
       });
     }
@@ -6432,6 +6648,7 @@ var llm_route_without_rate_limit_default = defineRule({
     return { applicable: true };
   },
   checkFile(file, ctx) {
+    if (isNonProductionFile(file)) return;
     if (file.role !== "next-app-route" && file.role !== "next-pages-api") return;
     if (!hasLlmCall(file.code)) return;
     const authenticated = hasAuthSignal(file.text);
@@ -6490,7 +6707,7 @@ var missing_llm_timeout_default = defineRule({
     return { applicable: true };
   },
   checkFile(file, ctx) {
-    if (file.role === "test") return;
+    if (isNonProductionFile(file)) return;
     if (!file.isServer) return;
     if (TIMEOUT_SIGNAL2.test(file.code)) return;
     const clientModules = ctx.index.findFiles(
@@ -6537,7 +6754,7 @@ var missing_token_limit_default = defineRule({
     return { applicable: true };
   },
   checkFile(file, ctx) {
-    if (file.role === "test") return;
+    if (isNonProductionFile(file)) return;
     let reported = 0;
     for (const call of findLlmCalls(file)) {
       if (reported >= MAX_FINDINGS_PER_RULE) return;
@@ -6584,7 +6801,7 @@ var untrusted_prompt_to_tools_default = defineRule({
     return { applicable: true };
   },
   checkFile(file, ctx) {
-    if (file.role === "test") return;
+    if (isNonProductionFile(file)) return;
     let reported = 0;
     for (const call of findLlmCalls(file)) {
       if (reported >= MAX_FINDINGS_PER_RULE) return;
@@ -6627,7 +6844,7 @@ var user_controlled_model_default = defineRule({
     return { applicable: true };
   },
   checkFile(file, ctx) {
-    if (file.role === "test") return;
+    if (isNonProductionFile(file)) return;
     if (VALIDATED.test(file.code)) return;
     let reported = 0;
     for (const call of findLlmCalls(file)) {
@@ -6684,7 +6901,7 @@ var BUILTIN_RULES = [
   swallowed_error_default,
   unhandled_promise_default,
   ci_missing_checks_default,
-  focused_or_skipped_test_default,
+  focused_test_default,
   no_test_infrastructure_default,
   untested_server_code_default,
   console_only_logging_default,
@@ -6724,9 +6941,21 @@ var markdownReporter = (result) => {
   const verdictEmoji = { READY: "\u2705", "NEEDS ATTENTION": "\u26A0\uFE0F", "NOT READY": "\u{1F6D1}" }[result.verdict];
   lines.push("# AI Shipcheck report");
   lines.push("");
-  lines.push(`**${verdictEmoji} ${result.verdict}** \u2014 score **${result.score}/100**`);
+  lines.push(
+    `**${verdictEmoji} ${result.verdict}** \u2014 score **${result.score}/100** across ${result.coverage.checksRun} assessed checks`
+  );
   lines.push("");
   for (const reason of result.verdictReasons) lines.push(`- ${escapeMd(reason)}`);
+  lines.push("");
+  if (result.stats.truncated) {
+    lines.push(
+      "> **Partial scan.** A resource limit stopped the scan before the whole project was read, so this verdict covers only what was scanned."
+    );
+    lines.push("");
+  }
+  lines.push(
+    `Assessed ${result.coverage.checksRun} of ${result.coverage.checksTotal} checks across ${result.coverage.categoriesAssessed} of ${result.coverage.categoriesTotal} categories (${result.coverage.checksNotApplicable} not applicable, ${result.coverage.checksUnassessed} not assessed).`
+  );
   lines.push("");
   lines.push("## Summary");
   lines.push("");
@@ -6873,6 +7102,11 @@ var prettyReporter = (result, options) => {
   out.push("");
   if (!options.quiet) {
     out.push(profileLine(result, c));
+    out.push(coverageLine(result, c));
+    out.push("");
+  }
+  if (result.stats.truncated) {
+    out.push(truncationBanner(result, c, width));
     out.push("");
   }
   out.push(categoryTable(result.categories, c));
@@ -6920,7 +7154,7 @@ var prettyReporter = (result, options) => {
   }
   out.push(
     c.dim(
-      `  Scanned ${result.stats.filesScanned} files in ${formatDuration(result.stats.durationMs)} \xB7 ${result.stats.rulesRun} checks run, ${result.stats.rulesSkipped} not applicable \xB7 ai-shipcheck v${result.tool.version}`
+      `  Scanned ${result.stats.filesScanned} files in ${formatDuration(result.stats.durationMs)} \xB7 ${result.coverage.checksRun} checks run, ${result.coverage.checksNotApplicable} not applicable, ${result.coverage.checksUnassessed} not assessed \xB7 ai-shipcheck v${result.tool.version}`
     )
   );
   out.push(c.dim("  Static analysis of source code - not a security certification."));
@@ -6933,7 +7167,8 @@ function header(result, c, width) {
   const assessed = result.categories.some((category) => category.status === "assessed");
   const score = assessed ? `${result.score}/100` : "--/100";
   const scoreColored = !assessed ? c.dim(score) : result.score >= 85 ? c.green(score) : result.score >= 60 ? c.yellow(score) : c.red(score);
-  const title = `  ${badge}  ${c.bold(scoreColored)} ${c.dim(assessed ? "production readiness" : "nothing assessed")}`;
+  const subtitle = assessed ? `across ${result.coverage.checksRun} assessed ${result.coverage.checksRun === 1 ? "check" : "checks"}` : "nothing assessed";
+  const title = `  ${badge}  ${c.bold(scoreColored)} ${c.dim(subtitle)}`;
   const name = result.profile.name ?? "";
   const right = name.length > 0 ? c.dim(name) : "";
   const pad = Math.max(1, width - visibleLength(title) - visibleLength(right) - 2);
@@ -6951,6 +7186,30 @@ function profileLine(result, c) {
   if (result.profile.hasTests) parts.push("tests present");
   if (result.profile.hasCi) parts.push("CI configured");
   return `  ${c.dim("Detected:")} ${c.dim(parts.length > 0 ? parts.join(" \xB7 ") : "no frameworks recognised")}`;
+}
+function coverageLine(result, c) {
+  const { coverage, stats } = result;
+  const parts = [
+    `${coverage.checksRun} of ${coverage.checksTotal} checks run`,
+    `${coverage.categoriesAssessed}/${coverage.categoriesTotal} categories scored`,
+    `${stats.filesScanned} ${stats.filesScanned === 1 ? "file" : "files"}`
+  ];
+  if (coverage.checksUnassessed > 0) parts.push(`${coverage.checksUnassessed} not assessed`);
+  if (coverage.checksDisabled > 0) parts.push(`${coverage.checksDisabled} disabled`);
+  return `  ${c.dim("Assessed:")} ${c.dim(parts.join(" \xB7 "))}`;
+}
+function truncationBanner(result, c, width) {
+  const label = c.bold(c.bgYellow(c.black(" PARTIAL SCAN ")));
+  const LIMIT_REASONS = ["depth-limit", "file-limit", "byte-limit", "too-large", "unreadable"];
+  const skipped = Object.entries(result.stats.skippedByReason).filter(([reason]) => LIMIT_REASONS.includes(reason)).map(([reason, count]) => `${count} ${reason}`).join(", ");
+  const body = wrap(
+    `A resource limit stopped the scan before the whole project was read${skipped.length > 0 ? ` (${skipped})` : ""}. This verdict covers only what was scanned. Raise the limits in shipcheck.config.json, or exclude the directory responsible, and scan again.`,
+    width - 6,
+    "    ",
+    c.reset
+  );
+  return `  ${label}
+    ${body}`;
 }
 function categoryTable(categories, c) {
   const labelWidth = Math.max(...categories.map((cat) => CATEGORY_LABELS[cat.category].length));
@@ -7137,7 +7396,7 @@ Remediation: ${meta?.remediation ?? ""}`.trim(),
         automationDetails: {
           id: `ai-shipcheck/${result.schemaVersion}`,
           description: {
-            text: `AI Shipcheck ${result.verdict} - score ${result.score}/100 across ${result.categories.filter((c) => c.status === "assessed").length} assessed categories.`
+            text: `AI Shipcheck ${result.verdict} - score ${result.score}/100 across ${result.coverage.checksRun} of ${result.coverage.checksTotal} checks and ${result.coverage.categoriesAssessed} of ${result.coverage.categoriesTotal} categories.` + (result.stats.truncated ? " A resource limit stopped the scan before the whole project was read." : "")
           }
         },
         columnKind: "unicodeCodePoints",
