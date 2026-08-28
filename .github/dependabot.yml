@@ -1,15 +1,34 @@
 version: 2
+
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Routine bumps are grouped so they arrive as one reviewable pull request.
+    # Majors are deliberately excluded from that group and raised individually:
+    # a group that bundled six majors at once could not even install, because
+    # it moved TypeScript to 7 while leaving typescript-eslint on a version
+    # that peers `typescript <6.1.0`. One major per pull request means each is
+    # judged on its own and a single incompatibility does not block the rest.
     groups:
       dev-dependencies:
         dependency-type: development
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # @types/node must track the oldest Node we support (engines: >=22), not
+      # the newest that exists. Types describing APIs absent from Node 22 would
+      # let code compile here and fail for a user on the supported floor.
+      - dependency-name: '@types/node'
+        versions: ['>=23']
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      github-actions:
+        patterns: ['*']

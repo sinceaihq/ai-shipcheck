@@ -20,7 +20,7 @@ Shipcheck is a local tool with a deliberately small blast radius:
 - **One runtime dependency.** A tool that inspects other people's supply chains
   should have almost none of its own.
 
-The full analysis is in **[docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)**.
+The full analysis is in **[docs/THREAT_MODEL.md](THREAT_MODEL.md)**.
 
 ## How the rules are validated
 
@@ -36,8 +36,8 @@ numbers in any file containing a multi-line comment.
 
 Each fix has a regression test named after the repository it came from.
 
-- [corpus/TRIAGE.md](corpus/TRIAGE.md) — the verdict on every rule that fired
-- [corpus/results/SUMMARY.md](corpus/results/SUMMARY.md) — per-repository results
+- [corpus/TRIAGE.md](../corpus/TRIAGE.md) — the verdict on every rule that fired
+- [corpus/results/SUMMARY.md](../corpus/results/SUMMARY.md) — per-repository results
 - `npm run corpus:sync && npm run corpus:scan` — reproduce it
 
 ## Performance
