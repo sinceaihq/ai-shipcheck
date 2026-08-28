@@ -62,8 +62,9 @@ file, a line, and a rule you can look up.
 
   · 4 blocking issues must be fixed before deploying. A blocker forces NOT READY regardless of score.
   · Weakest category: Database & Data Safety at 0/100 (7 findings).
+  · 1 category could not be assessed and was excluded from the score: Accessibility.
 
-  Scanned 9 files in 23 ms · 41 checks run, 19 not applicable, 3 not assessed · ai-shipcheck v0.1.0
+  Scanned 9 files in 29 ms · 41 checks run, 19 not applicable, 3 not assessed · ai-shipcheck v1.0.0
   Static analysis of source code - not a security certification.
 ```
 

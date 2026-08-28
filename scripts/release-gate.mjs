@@ -367,6 +367,19 @@ gate('every rule has a documentation page', () => {
   return `${listed.length} rules documented`;
 });
 
+gate('README sample output is current', () => {
+  // The sample is real output, so it goes stale on a version bump or a change
+  // to the footer. A README showing an old version is a small thing that
+  // undermines every other claim on the page.
+  const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+  const versions = [...readme.matchAll(/ai-shipcheck v(\d+\.\d+\.\d+)/g)].map((m) => m[1]);
+  const stale = versions.filter((v) => v !== pkg.version);
+  if (stale.length > 0) {
+    throw new Error(`README shows v${stale.join(', v')} but the package is v${pkg.version}`);
+  }
+  return versions.length > 0 ? `sample shows v${pkg.version}` : 'no version in sample';
+});
+
 gate('README commands exist', () => {
   const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
   const scripts = Object.keys(pkg.scripts);
