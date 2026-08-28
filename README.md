@@ -52,7 +52,7 @@ npx ai-shipcheck .
   · 4 blocking issues must be fixed before deploying. A blocker forces NOT READY regardless of score.
   · Weakest category: Database & Data Safety at 0/100 (7 findings).
 
-  Scanned 9 files in 29 ms · 41 checks run, 19 not applicable, 3 not assessed · ai-shipcheck v1.0.0
+  Scanned 9 files in 28 ms · 41 checks run, 19 not applicable, 3 not assessed · ai-shipcheck v1.0.1
   Static analysis of source code - not a security certification.
 ```
 
