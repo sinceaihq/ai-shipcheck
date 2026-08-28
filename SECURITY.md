@@ -2,35 +2,34 @@
 
 ## Reporting a vulnerability
 
-Please report security issues privately, not as a public issue.
-
-Use GitHub's private reporting:
+**Use GitHub's private vulnerability reporting:**
 **[Report a vulnerability](https://github.com/sinceaihq/ai-shipcheck/security/advisories/new)**
 
-Or email **security@sinceai.ai**.
+That is the preferred route. It keeps the report private, gives us a place to
+work on a fix with you, and produces a proper advisory when it is resolved.
 
-Please include:
+If GitHub reporting is unavailable to you, email **builders@sinceai.fi**.
 
-- What the problem is, and what an attacker gains from it
-- A minimal reproduction (a repository layout is usually enough)
-- The AI Shipcheck version and your Node version
+Please do not open a public issue for a suspected vulnerability.
+
+Include what the problem is and what an attacker gains from it, a minimal
+reproduction (a repository layout is usually enough), and the AI Shipcheck and
+Node versions.
 
 ### What to expect
 
-| Stage | Target |
-| --- | --- |
-| Acknowledgement | Within 3 business days |
-| Initial assessment | Within 7 business days |
-| Fix or mitigation for a confirmed high-severity issue | Within 30 days |
+We aim to acknowledge reports within a few working days and to keep you updated
+as the assessment progresses. AI Shipcheck is maintained by a small team, so we
+do not promise a fixed response or remediation deadline — we would rather set
+an honest expectation than an SLA we cannot hold to.
 
-We will keep you updated as the assessment progresses, credit you in the
-advisory unless you would rather we did not, and coordinate disclosure timing
-with you.
+You will be credited in the advisory unless you prefer otherwise, and we will
+coordinate disclosure timing with you.
 
 ## What counts as a vulnerability in AI Shipcheck
 
-AI Shipcheck is a static analysis tool that people point at repositories they
-do not necessarily trust. The following are in scope:
+AI Shipcheck is a static analysis tool that people point at repositories they do
+not necessarily trust. The following are in scope:
 
 - **Escaping the scan root.** Any input — a symlink, a crafted path, an ignore
   file — that causes Shipcheck to read a file outside the directory it was
@@ -39,8 +38,8 @@ do not necessarily trust. The following are in scope:
   repository to be executed, imported, evaluated, or resolved as a module.
   Shipcheck must never do this.
 - **Leaking a secret.** Any path where a discovered credential reaches an
-  output unmasked — terminal, JSON, SARIF, Markdown, GitHub annotation, or
-  job summary.
+  output unmasked — terminal, JSON, SARIF, Markdown, GitHub annotation, or job
+  summary.
 - **Denial of service.** Any input that causes a scan not to terminate:
   catastrophic backtracking in a regular expression, an unbounded loop, or
   unbounded memory growth. All scans must complete or stop cleanly at a
@@ -58,8 +57,8 @@ do not necessarily trust. The following are in scope:
   but not a vulnerability. Use the [false positive template](https://github.com/sinceaihq/ai-shipcheck/issues/new?template=false_positive.yml).
 - **Vulnerabilities in the code you scanned.** Those are yours to fix.
 - **A clean report on insecure code.** Shipcheck reports what it can establish
-  statically; a passing scan is not a security certification, and this is
-  stated in every report.
+  statically. A passing scan is not a security certification, and every report
+  says so.
 
 ## Design commitments
 
@@ -80,9 +79,10 @@ The reasoning behind each is in [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
 
 ## Supported versions
 
-While the project is pre-1.0, security fixes are released against the latest
-minor version only.
-
 | Version | Supported |
 | --- | --- |
-| 0.1.x | Yes |
+| 1.x | Yes |
+| < 1.0 | No |
+
+Fixes are released against the latest 1.x version. `0.0.0-bootstrap.0` was a
+registry placeholder and was never a functional release.
