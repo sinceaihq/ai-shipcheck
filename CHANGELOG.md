@@ -17,6 +17,42 @@ The full policy is in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-08-28
+
+Documentation and repository hygiene. No change to analysis behaviour: the
+rules, the scoring model and the JSON schema are identical to 1.0.0.
+
+### Fixed
+
+- `package-lock.json` still declared version `0.1.0` after the 1.0.0 release,
+  so the repository advertised two different versions for the same release.
+- Three links in the extracted documentation pages pointed at paths relative to
+  the repository root rather than to `docs/`.
+
+### Changed
+
+- The canonical contact is now **builders@sinceai.fi**. `SECURITY.md` names
+  GitHub private vulnerability reporting as the route to use and keeps email as
+  the fallback; `CODE_OF_CONDUCT.md` moves to the same address.
+- `SECURITY.md` states 1.x supported and <1.0 unsupported, replacing a
+  pre-1.0 policy, and describes response expectations we can actually hold to
+  rather than publishing an SLA.
+- The README is 212 lines rather than 422, focused on the first two minutes.
+  Nothing was deleted: the CLI reference moved to `docs/cli.md` and the
+  guarantees, validation and performance material to `docs/trust.md`.
+- Dependabot raises major updates individually instead of grouping them. A
+  grouped update bundling six majors could not install, because it moved
+  TypeScript to 7 while leaving `typescript-eslint` on a version peering
+  `typescript <6.1.0`. `@types/node` is now held at the supported Node floor.
+
+### Added
+
+- `SUPPORT.md` — where each kind of report belongs, and what to expect.
+- `CLAUDE.md` — the durable working rules for this repository.
+- `docs/cli.md` and `docs/trust.md`.
+- A release-gate check that the README's sample output matches the current
+  version, so it cannot silently go stale again.
+
 ## [1.0.0] - 2026-08-27
 
 First stable release.
@@ -131,5 +167,6 @@ Notable corrections found this way:
 - Resource limits that truncate a scan are surfaced in the report and in
   `stats.truncated` instead of being silently discarded.
 
-[Unreleased]: https://github.com/sinceaihq/ai-shipcheck/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/sinceaihq/ai-shipcheck/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/sinceaihq/ai-shipcheck/releases/tag/v1.0.1
 [1.0.0]: https://github.com/sinceaihq/ai-shipcheck/releases/tag/v1.0.0

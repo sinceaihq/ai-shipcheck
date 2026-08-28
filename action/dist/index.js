@@ -2612,7 +2612,7 @@ function plural(n, singular, pluralForm) {
 }
 
 // src/version.ts
-var VERSION = "1.0.0";
+var VERSION = "1.0.1";
 
 // src/core/engine.ts
 function resolveRules(registry, config) {

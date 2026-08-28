@@ -1,6 +1,6 @@
 {
   "name": "ai-shipcheck",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Your AI says it's done. Shipcheck tells you if it's ready to ship. Local-first, evidence-backed production-readiness scanner for JavaScript and TypeScript apps.",
   "keywords": [
     "production-readiness",
