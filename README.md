@@ -107,7 +107,8 @@ npx ai-shipcheck explain <rule-id>       # why a rule exists, and how to fix it
 Findings alone never fail the command — you opt in with `--fail-on` or
 `--min-score`, so adding this to an existing pipeline is a reversible step.
 Exit codes: `0` thresholds met, `1` not met, `2` usage error, `3` internal
-error.
+error. See the full CLI contract for stdout/stderr, `--output`, and
+`schemaVersion` guarantees in [docs/cli.md](docs/cli.md#cli-contract).
 
 Requires Node.js 22 or newer. Configuration is optional; a
 `shipcheck.config.json` can exclude paths, disable rules or set thresholds.
