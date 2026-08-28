@@ -408,6 +408,8 @@ fires on correct code, please [open a report](https://github.com/sinceaihq/ai-sh
 - [Limitations](docs/LIMITATIONS.md) — what static analysis cannot tell you
 - [Adding a rule](docs/adding-a-rule.md) — contributor walkthrough
 - [Corpus triage](corpus/TRIAGE.md) — how the rules were validated against real code
+- [Governance](GOVERNANCE.md) — how the project is maintained and released
+- [Releasing](docs/RELEASING.md) — the release process and versioning policy
 - [Roadmap](ROADMAP.md)
 
 ## License

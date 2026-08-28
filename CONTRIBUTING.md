@@ -173,6 +173,12 @@ statements). Coverage is a floor, not a goal.
 - Security vulnerabilities: see [SECURITY.md](SECURITY.md) — please report
   privately.
 
+## How the project is run
+
+[GOVERNANCE.md](GOVERNANCE.md) covers how decisions are made, what a rule must
+carry before it can merge, how releases are cut, and what maintainers are
+responsible for. Read it if you plan to contribute more than once.
+
 ## Code of conduct
 
 Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md).
