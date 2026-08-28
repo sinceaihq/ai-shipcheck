@@ -26,6 +26,12 @@ ai-shipcheck explain <rule-id>    # full documentation for one rule
 | `-h, --help` | Show help |
 | `-v, --version` | Print the version |
 
+## CLI contract
+
+The CLI contract covers exit codes, stdout/stderr behavior, report formats, and
+the JSON schema version. CI pipelines can rely on this behavior across patch and
+minor releases.
+
 ### Exit codes
 
 | Code | Meaning |
@@ -39,7 +45,24 @@ Findings alone never fail the command. You opt into failure with `--fail-on`
 or `--min-score`, so adding Shipcheck to an existing pipeline is a safe,
 reversible step.
 
-## Output formats
+### stdout and stderr
+
+For machine-readable formats, stdout contains only the requested report:
+
+- `--format json`
+- `--format sarif`
+- `--format markdown`
+
+That makes these formats safe to redirect or pipe in CI. Diagnostics, usage
+errors, and threshold-failure messages are written to stderr.
+
+With `--output <file>`, the report is written to the specified file instead of
+stdout. Successful file output does not print the report body to stdout.
+
+The default `pretty` format is intended for humans reading terminal output. Use
+`json`, `sarif`, or `markdown` when another program needs to consume the result.
+
+### Output formats
 
 ```bash
 ai-shipcheck . --format json    > report.json    # versioned schema
@@ -47,8 +70,13 @@ ai-shipcheck . --format sarif   > report.sarif   # SARIF 2.1.0
 ai-shipcheck . --format markdown > report.md     # PR comments, job summaries
 ```
 
-JSON carries an explicit `schemaVersion` — branch on that rather than sniffing
-for fields. SARIF includes `ruleIndex`, `security-severity` for sorting, and
+JSON carries an explicit `schemaVersion`; branch on that rather than sniffing
+for fields. The schema version covers the JSON report shape: top-level fields,
+finding fields, severity/confidence values, and summary objects. It does not
+cover prose in explanations/remediations, rule catalogue membership, scoring
+weights, or the exact number of findings produced for a project.
+
+SARIF includes `ruleIndex`, `security-severity` for sorting, and
 `partialFingerprints` so a finding is not reported as new when it moves lines.
 
 ```ts
