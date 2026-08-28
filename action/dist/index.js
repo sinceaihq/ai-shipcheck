@@ -9,7 +9,11 @@ var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __commonJS = (cb, mod) => function __require() {
-  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  try {
+    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+  } catch (e) {
+    throw mod = 0, e;
+  }
 };
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
@@ -48,7 +52,7 @@ var require_ignore = __commonJS({
     var SLASH = "/";
     var TMP_KEY_IGNORE = "node-ignore";
     if (typeof Symbol !== "undefined") {
-      TMP_KEY_IGNORE = Symbol.for("node-ignore");
+      TMP_KEY_IGNORE = /* @__PURE__ */ Symbol.for("node-ignore");
     }
     var KEY_IGNORE = TMP_KEY_IGNORE;
     var define = (object, key, value) => {
@@ -482,7 +486,7 @@ var require_ignore = __commonJS({
     module.exports = factory;
     factory.default = factory;
     module.exports.isPathValid = isPathValid;
-    define(module.exports, Symbol.for("setupWindows"), setupWindows);
+    define(module.exports, /* @__PURE__ */ Symbol.for("setupWindows"), setupWindows);
   }
 });
 
@@ -505,6 +509,9 @@ var JsonParseError = class extends Error {
     this.line = line;
     this.name = "JsonParseError";
   }
+  file;
+  detail;
+  line;
 };
 function stripJsonComments(text) {
   const out = new Array(text.length);
