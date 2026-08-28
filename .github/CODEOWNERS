@@ -1,0 +1,30 @@
+# Review routing. A team, never an individual: the point of this file is that
+# it keeps working when any one person stops maintaining the project.
+#
+# Ownership here only *requests* a review. "Require review from Code Owners"
+# is deliberately off in branch protection - with a small maintainer group it
+# would mean nobody could merge anything. See GOVERNANCE.md.
+
+*                       @sinceaihq/engineering
+
+# Changing what a verdict means is the one category that should never be a
+# quiet merge. Scoring constants, rule severities and the rule set itself
+# decide whether someone ships or does not ship.
+/src/rules/             @sinceaihq/engineering
+/src/scoring/           @sinceaihq/engineering
+
+# The analysis foundation. A lexer bug is not local: it silently moves every
+# position in every report, which is how the 1.0.0 line-number bug survived.
+/src/analysis/          @sinceaihq/engineering
+
+# Supply chain. These decide what gets published, with what permissions, and
+# what a workflow pinned to @v1 actually executes.
+/.github/workflows/     @sinceaihq/engineering
+/action/                @sinceaihq/engineering
+/scripts/               @sinceaihq/engineering
+/package.json           @sinceaihq/engineering
+
+# The promises. SECURITY.md and the threat model are load-bearing claims.
+/SECURITY.md            @sinceaihq/engineering
+/GOVERNANCE.md          @sinceaihq/engineering
+/docs/THREAT_MODEL.md   @sinceaihq/engineering
