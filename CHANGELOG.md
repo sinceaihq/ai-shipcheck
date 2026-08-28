@@ -17,6 +17,17 @@ The full policy is in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## [Unreleased]
 
+### Changed
+
+- `GOVERNANCE.md` records the repository's own configuration — branch
+  protection, the two deliberate exceptions in it, the enabled security
+  features, and why secret scanning's AI detection is off — so an inherited
+  repository does not have to be reverse-engineered from a settings page only
+  its owner can open.
+- esbuild 0.28 and ESLint 10. The esbuild bump regenerates
+  `action/dist/index.js`, which is the code a workflow pinned to `@v1`
+  executes, so the rebuilt bundle is committed with it.
+
 ## [1.0.1] - 2026-08-28
 
 Documentation and repository hygiene. No change to analysis behaviour: the

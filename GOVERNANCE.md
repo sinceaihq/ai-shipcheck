@@ -128,6 +128,47 @@ it would silently break every workflow pinned to `@v1`.
 The full table of what bumps which version component is in
 `docs/RELEASING.md`.
 
+## Repository settings
+
+Recorded here because settings live in a UI that only account owners can see,
+and an inherited repository should not have to be reverse-engineered.
+
+**`main` is protected.** All twelve CI jobs are required, one approving review
+is required, force pushes and deletions are refused, and conversations must be
+resolved before merge.
+
+Two choices in that set are deliberate and worth understanding before changing
+them:
+
+- **Administrators are not included in the restrictions.** With one required
+  approval and a small maintainer group, including them would mean a solo
+  maintainer could not merge anything at all — including a security fix. The
+  bypass exists so the project cannot deadlock, not so it can be used routinely.
+  Once there are two active maintainers who can review each other, include
+  administrators and delete this paragraph.
+- **Branches are not required to be up to date before merging.** Requiring it
+  serialises every merge behind a full CI re-run. The tests do not depend on
+  concurrently-merged work, so the cost is not worth the protection. If that
+  stops being true, turn it on.
+
+**Enabled:** private vulnerability reporting, secret scanning with push
+protection, non-provider patterns, validity checks, and Dependabot security
+updates. Issues and Discussions are on; the wiki is off, because documentation
+belongs in `docs/` where it is reviewed and versioned with the code.
+
+**Secret scanning's AI detection is off deliberately.** This repository
+contains dozens of fixtures full of synthetic credentials, which exist so rules
+have something to fire on. Generic AI-based detection would alert on them
+continuously. Provider-pattern scanning and push protection are on and do not
+have this problem.
+
+**There is no npm token anywhere** — not in a secret, not in an environment,
+not on a machine. Publishing authenticates through OIDC, as described under
+Releases. Adding a token would remove the guarantee that a release can only
+come from this repository's `release.yml`, so it is never the right fix for a
+failing publish.
+
+
 ## Security
 
 Vulnerabilities in Shipcheck itself are reported privately through
@@ -147,10 +188,11 @@ issue templates.
   changed.
 - **Merge.** Squash unless the branch has a genuinely useful history.
 - **Release.** Follow `docs/RELEASING.md`. Do not publish from a laptop.
-- **Dependencies.** Dependabot opens grouped pull requests weekly. Review them;
-  do not enable auto-merge. The production dependency tree is one package, and
-  keeping it that way is a deliberate constraint — a new runtime dependency
-  needs an argument in the pull request.
+- **Dependencies.** Dependabot opens pull requests weekly: minor and patch
+  updates arrive grouped, major updates individually. Review them; do not
+  enable auto-merge. The production dependency tree is one package, and keeping
+  it that way is a deliberate constraint — a new runtime dependency needs an
+  argument in the pull request.
 - **Say no.** Rules that exist to make a number bigger make the tool worse.
   Declining a proposal with a clear reason is a normal part of the job.
 
