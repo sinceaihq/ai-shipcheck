@@ -29,6 +29,12 @@ The full policy is in [docs/RELEASING.md](docs/RELEASING.md).
   features, and why secret scanning's AI detection is off — so an inherited
   repository does not have to be reverse-engineered from a settings page only
   its owner can open.
+- `docs/RELEASING.md` states that the npm package has a single owner, lists
+  exactly which actions require that account — reconfiguring the trusted
+  publisher, changing owners, deprecating a version — and how to remove the
+  dependency. Releasing itself needs no npm credential and is unaffected. This
+  is the project's only remaining single point of failure, and it is now
+  written down rather than known only to the original maintainer.
 - esbuild 0.28 and ESLint 10. The esbuild bump regenerates
   `action/dist/index.js`, which is the code a workflow pinned to `@v1`
   executes, so the rebuilt bundle is committed with it.

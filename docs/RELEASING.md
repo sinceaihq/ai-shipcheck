@@ -5,37 +5,54 @@ authenticates with a short-lived OIDC token minted by GitHub for that single
 job. There is no npm token in the repository, in a GitHub secret, or on
 anyone's laptop — so there is nothing to leak, rotate, or accidentally print.
 
-## One-time setup on npmjs.com
+## The npm side, and who controls it
 
-This is the only step that cannot be done from this repository, because it
-configures the npm account rather than the code.
+This is already configured — the section is here so it can be verified or
+rebuilt, not performed.
 
-1. Sign in at **[npmjs.com](https://www.npmjs.com/)** as a user who will own
-   the `ai-shipcheck` package.
-2. The package does not exist yet, so the first publish must establish it.
-   Either:
-   - publish `1.0.0` once manually (`npm publish --access public`) and then
-     configure trusted publishing, **or**
-   - create the package placeholder and configure trusted publishing first.
+Trusted publishing is configured on the package page at npmjs.com under
+**Settings → Trusted Publisher → GitHub Actions**, with exactly these values.
+All four must match or the publish is rejected:
 
-   The second is preferable: it means no version is ever published from a
-   laptop.
-3. Go to the package page → **Settings** → **Trusted Publisher** → *GitHub
-   Actions*, and enter exactly:
+| Field | Value |
+| --- | --- |
+| Organization or user | `sinceaihq` |
+| Repository | `ai-shipcheck` |
+| Workflow filename | `release.yml` |
+| Environment | `release` |
 
-   | Field | Value |
-   | --- | --- |
-   | Organization or user | `sinceaihq` |
-   | Repository | `ai-shipcheck` |
-   | Workflow filename | `release.yml` |
-   | Environment | `release` |
+The matching `release` environment exists in this repository under
+**Settings → Environments**. Adding required reviewers to it is recommended:
+it makes a publish need a human approval click rather than only a workflow run.
 
-4. In this repository, go to **Settings → Environments → New environment** and
-   create one named **`release`**. Adding required reviewers there is
-   recommended: it means a publish needs a human approval click, not just a
-   workflow run.
+**Do not create an npm automation token.** A token would publish from anywhere
+that holds it; the OIDC exchange only grants publish rights to this repository,
+this workflow file and this environment. If a publish fails to authenticate,
+the fix is in the four values above — never a token.
 
-Nothing else is needed. Do not create an npm automation token.
+### Ownership, and the one thing a maintainer cannot do alone
+
+**Releasing needs no npm credential.** Any maintainer who can dispatch
+`release.yml` can cut a release; the workflow authenticates as itself.
+
+But the npm package currently has a **single owner**, and these actions are
+possible only for that account:
+
+- changing or re-adding the trusted publisher configuration
+- adding or removing package owners
+- deprecating or unpublishing a version
+
+If that account becomes unavailable, releases continue to work — but none of
+the above can be done, and a broken trusted-publisher configuration would
+strand the project. Two ways to remove the dependency, in order of preference:
+
+1. **Move the package to an npm organisation** and grant the team publish
+   rights, so ownership is a group rather than a person.
+2. **Add a second owner** (`npm owner add <user> ai-shipcheck`).
+
+Until one of those is done, this is the project's only genuine single point of
+failure. It is recorded here rather than left as something the original
+maintainer happens to know.
 
 ## Cutting a release
 
