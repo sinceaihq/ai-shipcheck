@@ -34,6 +34,20 @@ jobs:
 
       - run: npm ci
 
+      # Trusted Publishing is an npm CLI feature. Checking it here means a
+      # dry run catches an unsuitable runner, rather than the real release
+      # failing with an opaque authentication error.
+      - name: npm supports Trusted Publishing
+        run: |
+          version=$(npm --version)
+          echo "npm $version"
+          major=$(echo "$version" | cut -d. -f1)
+          minor=$(echo "$version" | cut -d. -f2)
+          if [ "$major" -lt 11 ] || { [ "$major" -eq 11 ] && [ "$minor" -lt 5 ]; }; then
+            echo "::error::npm $version cannot use Trusted Publishing; 11.5.1 or newer is required."
+            exit 1
+          fi
+
       - name: Version input matches package.json
         run: |
           declared=$(node -p "require('./package.json').version")
@@ -115,18 +129,14 @@ jobs:
           git tag -fa "$major" -m "AI Shipcheck $major (currently v${{ inputs.version }})"
           git push --force origin "$major"
 
+      # The notes live in .github/release-notes.md so they are reviewable in a
+      # pull request rather than buried in shell quoting, and so a heredoc's
+      # indentation cannot corrupt the rendered Markdown.
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "v${{ inputs.version }}" \
             --title "AI Shipcheck v${{ inputs.version }}" \
-            --notes "See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for what changed.
-
-          \`\`\`bash
-          npx ai-shipcheck .
-          \`\`\`
-
-          \`\`\`yaml
-          - uses: ${{ github.repository }}@v1
-          \`\`\`"
+            --notes-file .github/release-notes.md \
+            --verify-tag
