@@ -17,6 +17,11 @@ The full policy is in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## [Unreleased]
 
+### Added
+
+- `.github/CODEOWNERS`, routing review requests to a team rather than to a
+  person, so they keep arriving when any one maintainer steps away.
+
 ### Changed
 
 - `GOVERNANCE.md` records the repository's own configuration — branch
