@@ -160,8 +160,8 @@ will be asked to split.
 - No test may depend on network access, wall-clock timing, or the contents of
   a directory outside the repository or a temporary directory.
 
-Coverage thresholds are enforced at 75% (lines, functions, branches,
-statements). Coverage is a floor, not a goal.
+Coverage thresholds are enforced in `vitest.config.ts` (89% lines, 90%
+functions, 74% branches, 84% statements). Coverage is a floor, not a goal.
 
 ## Reporting things
 
