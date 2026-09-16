@@ -21,6 +21,8 @@ ${c.bold('OPTIONS')}
                            ${c.dim('critical | high | medium | low | info | none')}
       --min-score <number> Exit 1 if the overall score is below this ${c.dim('(0-100)')}
   -c, --config <file>      Use a specific config file
+      --baseline <file>    Suppress findings accepted in this baseline
+      --write-baseline     Record current findings to --baseline (replace if present)
       --no-color           Disable ANSI colour
   -q, --quiet              Only print findings and the verdict
   -h, --help               Show this help

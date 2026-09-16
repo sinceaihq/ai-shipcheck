@@ -253,7 +253,7 @@ check('--min-score exits 1 when unmet', minScore.code === 1);
 
 const json = await cli([vulnerable, '--format', 'json']);
 const jsonReport = JSON.parse(json.stdout);
-check('--format json is pure, parseable JSON', jsonReport.schemaVersion === '1.0');
+check('--format json is pure, parseable JSON', jsonReport.schemaVersion === '1.1');
 check('json carries coverage', typeof jsonReport.coverage?.checksRun === 'number');
 
 const markdown = await cli([vulnerable, '--format', 'markdown']);
