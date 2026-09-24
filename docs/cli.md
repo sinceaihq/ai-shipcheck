@@ -36,7 +36,7 @@ minor releases.
 
 | Code | Meaning |
 | --- | --- |
-| `0` | Scan completed and every configured threshold was met |
+| `0` | Command completed successfully. For `scan`, every configured threshold was met |
 | `1` | Scan completed but `--fail-on` or `--min-score` was not satisfied |
 | `2` | Usage error: bad flag, missing target, invalid configuration |
 | `3` | Shipcheck itself failed — please [report it](https://github.com/sinceaihq/ai-shipcheck/issues) |
