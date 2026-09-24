@@ -72,7 +72,8 @@ ai-shipcheck . --format markdown > report.md     # PR comments, job summaries
 
 JSON carries an explicit `schemaVersion`; branch on that rather than sniffing
 for fields. The schema version covers the JSON report shape: top-level fields,
-finding fields, severity/confidence values, and summary objects. It does not
+finding fields, allowed severity/confidence enum values, and summary objects.
+It does not freeze the severity or confidence assigned to individual rules. It does not
 cover prose in explanations/remediations, rule catalogue membership, scoring
 weights, or the exact number of findings produced for a project.
 
