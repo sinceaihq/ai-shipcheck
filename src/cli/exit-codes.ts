@@ -2,7 +2,7 @@
  * Process exit codes.
  *
  * These are part of the CLI contract: CI pipelines branch on them, so they are
- * documented in README.md and must not be renumbered without a major version.
+ * documented in docs/cli.md and must not be renumbered without a major version.
  */
 export const EXIT = {
   /** The scan completed and every configured threshold was met. */
