@@ -609,7 +609,7 @@ function describeError(error) {
 }
 
 // src/types/core.ts
-var SCHEMA_VERSION = "1.0";
+var SCHEMA_VERSION = "1.1";
 var CATEGORIES = [
   "security",
   "auth",
@@ -2621,6 +2621,46 @@ function plural(n, singular, pluralForm) {
 // src/version.ts
 var VERSION = "1.0.1";
 
+// src/utils/fingerprint.ts
+function findingFingerprint(finding) {
+  const primary = finding.evidence[0];
+  return fingerprint(`${finding.ruleId}|${primary?.file ?? ""}|${primary?.snippet ?? ""}`);
+}
+function fingerprint(input) {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
+}
+
+// src/baseline/baseline.ts
+function suppressBaseline(findings, checks, baseline) {
+  const accepted = new Set(baseline.fingerprints);
+  const remaining = findings.filter((finding) => !accepted.has(findingFingerprint(finding)));
+  const counts = /* @__PURE__ */ new Map();
+  for (const finding of remaining) {
+    counts.set(finding.ruleId, (counts.get(finding.ruleId) ?? 0) + 1);
+  }
+  return {
+    findings: remaining,
+    checks: checks.map((check) => {
+      const findingCount = counts.get(check.ruleId) ?? 0;
+      if (check.status === "fail" && findingCount === 0) {
+        return {
+          ...check,
+          status: "pass",
+          findingCount,
+          reason: "All findings accepted by the baseline."
+        };
+      }
+      return { ...check, findingCount };
+    }),
+    suppressedFindingCount: findings.length - remaining.length
+  };
+}
+
 // src/core/engine.ts
 function resolveRules(registry, config) {
   const warnings = [];
@@ -2766,20 +2806,20 @@ async function runScan(options) {
   }
   findings.sort(compareFindings);
   checks.sort((a, b) => a.ruleId.localeCompare(b.ruleId));
-  const { score, verdict, verdictReasons, categories } = computeScore({ findings, checks });
+  const filtered = options.baseline === void 0 ? { findings, checks, suppressedFindingCount: 0 } : suppressBaseline(findings, checks, options.baseline);
+  const { score, verdict, verdictReasons, categories } = computeScore(filtered);
   options.onProgress?.({ phase: "done" });
   return {
     schemaVersion: SCHEMA_VERSION,
     tool: { name: "ai-shipcheck", version: VERSION },
     generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
     profile: index.profile,
-    findings,
-    checks,
+    ...filtered,
     score,
     verdict,
     verdictReasons,
     categories,
-    coverage: summariseCoverage(checks, categories),
+    coverage: summariseCoverage(filtered.checks, categories),
     stats: {
       filesScanned: built.filesScanned,
       filesSkipped: built.filesSkipped,
@@ -6948,6 +6988,8 @@ var markdownReporter = (result) => {
   const verdictEmoji = { READY: "\u2705", "NEEDS ATTENTION": "\u26A0\uFE0F", "NOT READY": "\u{1F6D1}" }[result.verdict];
   lines.push("# AI Shipcheck report");
   lines.push("");
+  lines.push(`${result.suppressedFindingCount} findings suppressed by baseline.`);
+  lines.push("");
   lines.push(
     `**${verdictEmoji} ${result.verdict}** \u2014 score **${result.score}/100** across ${result.coverage.checksRun} assessed checks`
   );
@@ -7107,6 +7149,8 @@ var prettyReporter = (result, options) => {
   out.push("");
   out.push(header(result, c, width));
   out.push("");
+  out.push(`  ${result.suppressedFindingCount} findings suppressed by baseline.`);
+  out.push("");
   if (!options.quiet) {
     out.push(profileLine(result, c));
     out.push(coverageLine(result, c));
@@ -7125,7 +7169,9 @@ var prettyReporter = (result, options) => {
     );
     out.push("");
   } else if (result.findings.length === 0) {
-    out.push(`  ${c.green("No findings.")} ${c.dim("Every applicable check passed.")}`);
+    out.push(
+      `  ${c.green("No findings.")} ${c.dim(result.suppressedFindingCount > 0 ? "No findings remain after baseline suppression." : "Every applicable check passed.")}`
+    );
     out.push("");
   } else {
     out.push(c.bold("  Findings"));
@@ -7403,10 +7449,11 @@ Remediation: ${meta?.remediation ?? ""}`.trim(),
         automationDetails: {
           id: `ai-shipcheck/${result.schemaVersion}`,
           description: {
-            text: `AI Shipcheck ${result.verdict} - score ${result.score}/100 across ${result.coverage.checksRun} of ${result.coverage.checksTotal} checks and ${result.coverage.categoriesAssessed} of ${result.coverage.categoriesTotal} categories.` + (result.stats.truncated ? " A resource limit stopped the scan before the whole project was read." : "")
+            text: `AI Shipcheck ${result.verdict} - score ${result.score}/100 across ${result.coverage.checksRun} of ${result.coverage.checksTotal} checks and ${result.coverage.categoriesAssessed} of ${result.coverage.categoriesTotal} categories. ${result.suppressedFindingCount} findings suppressed by baseline.` + (result.stats.truncated ? " A resource limit stopped the scan before the whole project was read." : "")
           }
         },
         columnKind: "unicodeCodePoints",
+        properties: { suppressedFindingCount: result.suppressedFindingCount },
         results,
         invocations: [
           {
@@ -7440,7 +7487,6 @@ function toSarifResult(finding, ruleIndex) {
     },
     ...ev.note !== void 0 ? { message: { text: ev.note } } : {}
   }));
-  const primary = finding.evidence[0];
   return {
     ruleId: finding.ruleId,
     ruleIndex: ruleIndex.get(finding.ruleId) ?? 0,
@@ -7450,9 +7496,7 @@ function toSarifResult(finding, ruleIndex) {
     },
     locations: locations.length > 0 ? locations : void 0,
     partialFingerprints: {
-      shipcheckRuleLocation: fingerprint(
-        `${finding.ruleId}|${primary?.file ?? ""}|${primary?.snippet ?? ""}`
-      )
+      shipcheckRuleLocation: findingFingerprint(finding)
     },
     properties: {
       category: finding.category,
@@ -7468,14 +7512,6 @@ function precisionOf(confidence) {
 }
 function toPascalCase(id) {
   return id.split(/[/-]/).map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join("");
-}
-function fingerprint(input) {
-  let hash = 2166136261;
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 16777619) >>> 0;
-  }
-  return hash.toString(16).padStart(8, "0");
 }
 
 // src/reporters/index.ts

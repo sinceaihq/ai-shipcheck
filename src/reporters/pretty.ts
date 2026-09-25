@@ -27,6 +27,8 @@ export const prettyReporter: Reporter = (result, options) => {
   out.push('');
   out.push(header(result, c, width));
   out.push('');
+  out.push(`  ${result.suppressedFindingCount} findings suppressed by baseline.`);
+  out.push('');
 
   if (!options.quiet) {
     out.push(profileLine(result, c));
@@ -49,7 +51,9 @@ export const prettyReporter: Reporter = (result, options) => {
     );
     out.push('');
   } else if (result.findings.length === 0) {
-    out.push(`  ${c.green('No findings.')} ${c.dim('Every applicable check passed.')}`);
+    out.push(
+      `  ${c.green('No findings.')} ${c.dim(result.suppressedFindingCount > 0 ? 'No findings remain after baseline suppression.' : 'Every applicable check passed.')}`,
+    );
     out.push('');
   } else {
     out.push(c.bold('  Findings'));

@@ -1,5 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { createBaseline } from '../../baseline/baseline.js';
+import { loadBaseline, writeBaseline } from '../../baseline/file.js';
 import { applyOverrides, loadConfig } from '../../config/load.js';
 import { runScan } from '../../core/engine.js';
 import { createDefaultRegistry } from '../../rules/index.js';
@@ -7,7 +9,7 @@ import { getReporter } from '../../reporters/index.js';
 import { countAtLeast } from '../../scoring/score.js';
 import type { Severity } from '../../types/core.js';
 import { stripAnsi } from '../../utils/color.js';
-import { TargetError, ShipcheckError } from '../../utils/errors.js';
+import { TargetError, ShipcheckError, UsageError } from '../../utils/errors.js';
 import { EXIT, type ExitCode } from '../exit-codes.js';
 import type { ParsedArgs } from '../args.js';
 import type { ScanResult } from '../../types/core.js';
@@ -24,6 +26,13 @@ export interface ScanCommandResult {
 export async function runScanCommand(args: ParsedArgs, color: boolean): Promise<ScanCommandResult> {
   const target = args.positionals[0] ?? '.';
   const root = await resolveTarget(target);
+  if (args.baseline !== undefined && args.output !== undefined) {
+    await assertDistinctBaselineOutput(args.baseline, args.output);
+  }
+  const baseline =
+    args.baseline !== undefined && !args.writeBaseline
+      ? await loadBaseline(args.baseline)
+      : undefined;
 
   const loaded = await loadConfig({ root, explicitPath: args.config });
   const config = applyOverrides(loaded, {
@@ -32,13 +41,26 @@ export async function runScanCommand(args: ParsedArgs, color: boolean): Promise<
   });
 
   const registry = createDefaultRegistry();
-  const result = await runScan({ root, config, registry });
+  const result = await runScan({
+    root,
+    config,
+    registry,
+    ...(baseline === undefined ? {} : { baseline }),
+  });
+  if (args.writeBaseline && args.baseline !== undefined) {
+    await writeBaseline(args.baseline, createBaseline(result.findings));
+  }
 
   const reporter = getReporter(args.format);
   const wantsColor = color && args.output === undefined && args.format === 'pretty';
   let output = reporter(result, { color: wantsColor, quiet: args.quiet, root });
 
   if (args.output !== undefined) {
+    // A newly written baseline may now resolve through an alias that did not
+    // exist at the initial check (including case aliases and dangling symlinks).
+    if (args.baseline !== undefined) {
+      await assertDistinctBaselineOutput(args.baseline, args.output);
+    }
     output = args.format === 'pretty' ? stripAnsi(output) : output;
     await writeOutput(args.output, output);
   }
@@ -103,6 +125,34 @@ async function resolveTarget(target: string): Promise<string> {
     );
   }
   return resolved;
+}
+
+/** stat follows symlinks and identifies case aliases and hard links on every platform. */
+async function assertDistinctBaselineOutput(baseline: string, output: string): Promise<void> {
+  const collision = (): UsageError =>
+    new UsageError('--baseline and --output must name different files.');
+  if (path.resolve(baseline) === path.resolve(output)) throw collision();
+
+  const inspect = async (target: string) => {
+    try {
+      return await fs.stat(target, { bigint: true });
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT') return undefined;
+      throw new UsageError(
+        `Could not check baseline/output file ${target} (${code ?? 'unknown error'}).`,
+      );
+    }
+  };
+  const [baselineStat, outputStat] = await Promise.all([inspect(baseline), inspect(output)]);
+  if (
+    baselineStat !== undefined &&
+    outputStat !== undefined &&
+    baselineStat.dev === outputStat.dev &&
+    baselineStat.ino === outputStat.ino
+  ) {
+    throw collision();
+  }
 }
 
 async function writeOutput(target: string, content: string): Promise<void> {

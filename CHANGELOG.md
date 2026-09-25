@@ -19,10 +19,20 @@ The full policy is in [docs/RELEASING.md](docs/RELEASING.md).
 
 ### Added
 
+- `--baseline <file>` and `--write-baseline` let existing projects record accepted
+  findings and report only new ones. Matching uses the existing SARIF fingerprint;
+  suppressed findings are counted in every output format and excluded from scoring,
+  verdicts and threshold evaluation. Baseline files use schema version `1.0`.
+
 - `.github/CODEOWNERS`, routing review requests to a team rather than to a
   person, so they keep arriving when any one maintainer steps away.
 
 ### Changed
+
+- JSON report schema `1.1` adds the always-present `suppressedFindingCount` field
+  (`0` without a baseline). Check counts and pass/fail status describe remaining
+  findings; fully suppressed checks carry an explanatory reason. This additive
+  public contract change requires a minor release under the versioning policy.
 
 - `GOVERNANCE.md` records the repository's own configuration — branch
   protection, the two deliberate exceptions in it, the enabled security

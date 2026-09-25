@@ -7,6 +7,8 @@
 export * from './types/core.js';
 export type { Rule, RuleMeta, RuleContext, RuleFinding, Applicability } from './types/rule.js';
 export { runScan, resolveRules, compareFindings } from './core/engine.js';
+export { BASELINE_SCHEMA_VERSION, createBaseline, parseBaseline } from './baseline/baseline.js';
+export type { Baseline } from './baseline/baseline.js';
 export { buildIndex } from './core/build-index.js';
 export { ProjectIndex } from './core/project-index.js';
 export { RuleRegistry } from './core/registry.js';

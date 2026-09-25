@@ -17,11 +17,14 @@ import { computeScore } from '../scoring/score.js';
 import { SOURCE_EXTENSIONS } from '../filesystem/limits.js';
 import { describeError } from '../utils/errors.js';
 import { VERSION } from '../version.js';
+import { suppressBaseline, type Baseline } from '../baseline/baseline.js';
 
 export interface RunScanOptions {
   readonly root: string;
   readonly config: ShipcheckConfig;
   readonly registry: RuleRegistry;
+  /** Accepted identities to suppress before scoring and reporting. */
+  readonly baseline?: Baseline;
   /** Called after the index is built, before rules run. Used for progress UI. */
   readonly onProgress?: (event: ProgressEvent) => void;
 }
@@ -224,7 +227,11 @@ export async function runScan(options: RunScanOptions): Promise<ScanResult> {
   findings.sort(compareFindings);
   checks.sort((a, b) => a.ruleId.localeCompare(b.ruleId));
 
-  const { score, verdict, verdictReasons, categories } = computeScore({ findings, checks });
+  const filtered =
+    options.baseline === undefined
+      ? { findings, checks, suppressedFindingCount: 0 }
+      : suppressBaseline(findings, checks, options.baseline);
+  const { score, verdict, verdictReasons, categories } = computeScore(filtered);
   options.onProgress?.({ phase: 'done' });
 
   return {
@@ -232,13 +239,12 @@ export async function runScan(options: RunScanOptions): Promise<ScanResult> {
     tool: { name: 'ai-shipcheck', version: VERSION },
     generatedAt: new Date().toISOString(),
     profile: index.profile,
-    findings,
-    checks,
+    ...filtered,
     score,
     verdict,
     verdictReasons,
     categories,
-    coverage: summariseCoverage(checks, categories),
+    coverage: summariseCoverage(filtered.checks, categories),
     stats: {
       filesScanned: built.filesScanned,
       filesSkipped: built.filesSkipped,

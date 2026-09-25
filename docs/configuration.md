@@ -139,6 +139,9 @@ around a runaway `node_modules` copy — exclude it instead.
 
 ## Suppressing a single finding
 
+For adopting an existing project while keeping checks enabled for new code,
+use a [baseline](#baselines-for-existing-projects).
+
 There is deliberately no inline suppression comment. Two reasons: a comment
 that disables analysis is an obvious thing for a compromised dependency or a
 careless refactor to add, and a suppression scattered through source is
@@ -158,3 +161,38 @@ If you need finer granularity, exclude the path:
 ```json
 { "exclude": ["src/legacy-admin/**"] }
 ```
+
+## Baselines for existing projects
+
+Record the findings you accept today, then check only for new findings:
+
+```bash
+ai-shipcheck . --baseline shipcheck-baseline.json --write-baseline
+ai-shipcheck . --baseline shipcheck-baseline.json --fail-on high
+```
+
+Keep the baseline in version control and review changes to it. It is a central
+record of accepted identities, not a way to disable checks from source comments.
+Rules still run, and every report visibly counts the current findings suppressed
+by the baseline. Only remaining findings affect scores, verdicts and thresholds;
+a high score with a baseline does not mean accepted issues were fixed. Stale
+entries for findings that no longer exist do not count as suppressed.
+
+Matching reuses SARIF's exact FNV-1a fingerprint over the rule ID and the first
+evidence item's repository-relative POSIX file path and snippet. Line and column
+numbers are excluded, so adding unrelated lines above a finding does not make it
+new. Moving to a different file or changing the snippet changes the identity.
+Formatting that changes the recorded snippet can therefore make a finding new.
+Some project-level findings use the file's first line as evidence; prepending a
+comment changes that snippet and can make those findings new as well.
+Identical snippets for the same rule within one file share an identity, including
+new copies; the existing 32-bit hash can also collide. Findings without evidence
+share an identity by rule ID. Baselines inherit these SARIF limitations.
+
+The baseline has its own `schemaVersion` (`"1.0"`) and a `fingerprints` array of
+eight-character lowercase hexadecimal strings. It stores no snippets, expiry
+dates, justifications or inline suppression directives. `--write-baseline` replaces
+the entire file with the current findings, so review regeneration carefully.
+Paths are relative to the working directory. Missing or invalid files cause a
+usage error; a baseline is never silently ignored. The flags and recording-mode
+behavior are covered in the [CLI reference](cli.md#adopting-shipcheck-with-a-baseline).

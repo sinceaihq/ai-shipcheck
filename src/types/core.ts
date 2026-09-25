@@ -8,7 +8,7 @@
  */
 
 /** Schema version of the machine-readable (`--format json`) output. */
-export const SCHEMA_VERSION = '1.0' as const;
+export const SCHEMA_VERSION = '1.1' as const;
 
 /** Production-readiness dimensions Shipcheck evaluates. */
 export const CATEGORIES = [
@@ -113,7 +113,7 @@ export interface Finding {
 
 /** Why a check produced no findings — used to avoid manufacturing scores. */
 export type CheckStatus =
-  /** The rule ran and found nothing wrong. */
+  /** The rule ran with no remaining findings after baseline suppression. */
   | 'pass'
   /** The rule ran and produced findings. */
   | 'fail'
@@ -129,7 +129,7 @@ export interface CheckResult {
   readonly ruleId: string;
   readonly category: Category;
   readonly status: CheckStatus;
-  /** Populated for `unassessed` / `not-applicable` so users know why. */
+  /** Explains unassessed/not-applicable checks or a pass due to baseline suppression. */
   readonly reason?: string;
   readonly findingCount: number;
 }
@@ -285,6 +285,8 @@ export interface ScanResult {
   readonly generatedAt: string;
   readonly profile: ProjectProfile;
   readonly findings: readonly Finding[];
+  /** Current findings accepted by the baseline, excluded from findings and scoring. */
+  readonly suppressedFindingCount: number;
   readonly checks: readonly CheckResult[];
   readonly score: number;
   readonly verdict: Verdict;

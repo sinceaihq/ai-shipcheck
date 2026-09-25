@@ -21,6 +21,8 @@ ai-shipcheck explain <rule-id>    # full documentation for one rule
 | `--fail-on <severity>` | Exit `1` if any finding is this severity or worse |
 | `--min-score <number>` | Exit `1` if the overall score is below this (0–100) |
 | `-c, --config <file>` | Use a specific configuration file |
+| `--baseline <file>` | Suppress findings recorded in a baseline |
+| `--write-baseline` | Record current findings to `--baseline <file>`, replacing it if present |
 | `--no-color` | Disable ANSI colour |
 | `-q, --quiet` | Only print findings and the verdict |
 | `-h, --help` | Show help |
@@ -79,6 +81,37 @@ weights, or the exact number of findings produced for a project.
 
 SARIF includes `ruleIndex`, `security-severity` for sorting, and
 `partialFingerprints` so a finding is not reported as new when it moves lines.
+
+Report schema `1.1` adds `suppressedFindingCount`, always present and zero when
+no findings were suppressed. Findings, per-check counts/status, category scores,
+verdicts and thresholds all describe the remaining findings. Fully suppressed
+checks become `pass` with a reason explaining baseline acceptance; assessment
+coverage is unchanged. SARIF exposes the count in `runs[].properties` and its
+run description. Pretty (including `--quiet`) and Markdown show it explicitly.
+
+## Adopting Shipcheck with a baseline
+
+```bash
+ai-shipcheck . --baseline shipcheck-baseline.json --write-baseline  # record
+ai-shipcheck . --baseline shipcheck-baseline.json                   # only new
+ai-shipcheck . --baseline shipcheck-baseline.json --fail-on high    # CI
+```
+
+`--write-baseline` requires `--baseline <file>`. It creates parent directories
+and replaces any existing baseline with all findings from the current scan,
+without applying the old baseline. The recording command reports the full scan
+and evaluates thresholds normally; subsequent scans apply suppression. Baseline
+paths are relative to the current working directory, even when scanning another
+directory. Use a different path for `--output`.
+
+A missing, unreadable, malformed or unsupported baseline is a usage error
+(exit `2`). Baseline files are strict JSON with their own schema version `1.0`;
+they contain a sorted, deduplicated `fingerprints` array, not source snippets.
+Review and commit the file to make acceptance visible in CI. See
+[configuration](configuration.md#baselines-for-existing-projects) for identity
+limitations and the suppression policy.
+
+## Library usage
 
 ```ts
 import { runScan, createDefaultRegistry, DEFAULT_CONFIG } from 'ai-shipcheck';
