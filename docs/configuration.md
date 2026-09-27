@@ -183,14 +183,21 @@ evidence item's repository-relative POSIX file path and snippet. Line and column
 numbers are excluded, so adding unrelated lines above a finding does not make it
 new. Moving to a different file or changing the snippet changes the identity.
 Formatting that changes the recorded snippet can therefore make a finding new.
-Some project-level findings use the file's first line as evidence; prepending a
-comment changes that snippet and can make those findings new as well.
-Identical snippets for the same rule within one file share an identity, including
-new copies; the existing 32-bit hash can also collide. Findings without evidence
-share an identity by rule ID. Baselines inherit these SARIF limitations.
+The missing-error-boundary finding cites the root layout's first `<html>` code
+element, or its default export if no such element exists. Prepending comments or
+string literals leaves its identity unchanged when the anchored line stays the
+same. Without either construct, the rule cites `package.json`.
+
+The baseline stores one fingerprint per accepted occurrence. Identical findings
+in the same file share the same fingerprint, but each baseline entry suppresses
+only one occurrence; an additional copy remains reportable. The existing 32-bit
+hash can still collide. Findings without evidence share an identity by rule ID.
+SARIF results may share a partial fingerprint, while baseline suppression also
+preserves their occurrence counts.
 
 The baseline has its own `schemaVersion` (`"1.0"`) and a `fingerprints` array of
-eight-character lowercase hexadecimal strings. It stores no snippets, expiry
+eight-character lowercase hexadecimal strings, with repeated entries preserving
+the number of accepted occurrences. It stores no snippets, expiry
 dates, justifications or inline suppression directives. `--write-baseline` replaces
 the entire file with the current findings, so review regeneration carefully.
 Paths are relative to the working directory. Missing or invalid files cause a

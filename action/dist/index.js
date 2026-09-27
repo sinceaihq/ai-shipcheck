@@ -2637,8 +2637,20 @@ function fingerprint(input) {
 
 // src/baseline/baseline.ts
 function suppressBaseline(findings, checks, baseline) {
-  const accepted = new Set(baseline.fingerprints);
-  const remaining = findings.filter((finding) => !accepted.has(findingFingerprint(finding)));
+  const accepted = /* @__PURE__ */ new Map();
+  for (const fingerprint2 of baseline.fingerprints) {
+    accepted.set(fingerprint2, (accepted.get(fingerprint2) ?? 0) + 1);
+  }
+  const remaining = [];
+  for (const finding of findings) {
+    const fingerprint2 = findingFingerprint(finding);
+    const count = accepted.get(fingerprint2) ?? 0;
+    if (count === 0) {
+      remaining.push(finding);
+    } else {
+      accepted.set(fingerprint2, count - 1);
+    }
+  }
   const counts = /* @__PURE__ */ new Map();
   for (const finding of remaining) {
     counts.set(finding.ruleId, (counts.get(finding.ruleId) ?? 0) + 1);
@@ -5712,6 +5724,8 @@ var missing_error_boundary_default = defineRule({
     if (ctx.index.files.some((f) => ERROR_BOUNDARY.test(f.code))) return;
     const isAppRouter = ctx.index.hasFramework("next-app-router");
     const rootLayout = ctx.index.withRole("next-app-special").find((f) => /^(?:src\/)?app\/layout\.[cm]?[jt]sx?$/.test(f.path));
+    const note = isAppRouter ? "no error.tsx or global-error.tsx in any route segment" : "no error boundary component anywhere in the project";
+    const layoutAnchor = rootLayout === void 0 ? void 0 : [...rootLayout.matches(/<html(?:\s|>)/g)][0] ?? [...rootLayout.matches(/\bexport\s+default\b/g)][0];
     ctx.report({
       explanation: isAppRouter ? "This App Router project has no error.tsx or global-error.tsx anywhere, and no error boundary component. An exception thrown while rendering any route replaces the page with a blank screen." : "No error boundary was found in this React application. An exception thrown during render unmounts the whole tree and leaves the user with a blank page.",
       remediation: isAppRouter ? "Add app/error.tsx for route-level recovery and app/global-error.tsx as a last resort, and report the error from each one." : "Wrap the application root in an error boundary - react-error-boundary is a small, well-maintained option - and report caught errors to your monitoring service.",
@@ -5719,9 +5733,7 @@ var missing_error_boundary_default = defineRule({
       // boundary belongs - and fall back to the manifest otherwise. Pointing
       // at a directory produces a location no tool can open.
       evidence: [
-        projectEvidence(ctx.index, rootLayout?.path ?? "package.json", {
-          note: isAppRouter ? "no error.tsx or global-error.tsx in any route segment" : "no error boundary component anywhere in the project"
-        })
+        rootLayout !== void 0 && layoutAnchor !== void 0 ? rootLayout.evidenceAt(layoutAnchor.index, { note }) : projectEvidence(ctx.index, "package.json", { note })
       ]
     });
   }

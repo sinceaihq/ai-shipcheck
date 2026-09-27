@@ -14,7 +14,9 @@ export interface Baseline {
 export function createBaseline(findings: readonly Finding[]): Baseline {
   return {
     schemaVersion: BASELINE_SCHEMA_VERSION,
-    fingerprints: [...new Set(findings.map(findingFingerprint))].sort(),
+    // Preserve multiplicity: identical fingerprints at separate locations
+    // are separate accepted occurrences, not blanket suppressions.
+    fingerprints: findings.map(findingFingerprint).sort(),
   };
 }
 
@@ -47,7 +49,7 @@ export function parseBaseline(text: string): Baseline {
   }
   return {
     schemaVersion: BASELINE_SCHEMA_VERSION,
-    fingerprints: [...new Set<string>(data.fingerprints)],
+    fingerprints: data.fingerprints as string[],
   };
 }
 
@@ -57,8 +59,20 @@ export function suppressBaseline(
   checks: readonly CheckResult[],
   baseline: Baseline,
 ): { findings: Finding[]; checks: CheckResult[]; suppressedFindingCount: number } {
-  const accepted = new Set(baseline.fingerprints);
-  const remaining = findings.filter((finding) => !accepted.has(findingFingerprint(finding)));
+  const accepted = new Map<string, number>();
+  for (const fingerprint of baseline.fingerprints) {
+    accepted.set(fingerprint, (accepted.get(fingerprint) ?? 0) + 1);
+  }
+  const remaining: Finding[] = [];
+  for (const finding of findings) {
+    const fingerprint = findingFingerprint(finding);
+    const count = accepted.get(fingerprint) ?? 0;
+    if (count === 0) {
+      remaining.push(finding);
+    } else {
+      accepted.set(fingerprint, count - 1);
+    }
+  }
   const counts = new Map<string, number>();
   for (const finding of remaining) {
     counts.set(finding.ruleId, (counts.get(finding.ruleId) ?? 0) + 1);

@@ -57,6 +57,23 @@ describe('baseline matching', () => {
     ).toBe(1);
   });
 
+  it('suppresses only the accepted number of identical occurrences, regardless of location', () => {
+    const second = {
+      ...finding,
+      evidence: [{ ...finding.evidence[0]!, line: 40, column: 12 }],
+    };
+    const baseline = parseBaseline(JSON.stringify(createBaseline([finding])));
+    const result = suppressBaseline([finding, second], [{ ...check, findingCount: 2 }], baseline);
+
+    expect(result.findings).toEqual([second]);
+    expect(result.suppressedFindingCount).toBe(1);
+    expect(result.checks).toEqual([{ ...check, findingCount: 1 }]);
+    expect(createBaseline([finding, second]).fingerprints).toEqual([
+      ...createBaseline([finding]).fingerprints,
+      ...createBaseline([second]).fingerprints,
+    ]);
+  });
+
   it('does not match another rule with the same evidence', () => {
     const other = { ...finding, ruleId: 'security/other-rule' };
     expect(suppressBaseline([other], [], createBaseline([finding])).findings).toEqual([other]);
@@ -86,11 +103,11 @@ describe('baseline matching', () => {
     expect(suppressBaseline([], checks, createBaseline([finding])).checks).toEqual(checks);
   });
 
-  it('counts matching findings rather than unique or stale baseline entries', () => {
+  it('preserves matching occurrence counts and ignores stale baseline entries', () => {
     const stale = { ...finding, ruleId: 'security/stale' };
     const moved = { ...finding, evidence: [{ ...finding.evidence[0]!, line: 40 }] };
     const baseline = createBaseline([finding, stale, finding]);
-    expect(baseline.fingerprints).toHaveLength(2);
+    expect(baseline.fingerprints).toHaveLength(3);
     expect(baseline.fingerprints).toEqual([...baseline.fingerprints].sort());
     expect(suppressBaseline([finding, moved], [], baseline).suppressedFindingCount).toBe(2);
     expect(suppressBaseline([], [], baseline).suppressedFindingCount).toBe(0);
@@ -136,11 +153,11 @@ describe('baseline parsing', () => {
     expect(() => parseBaseline(text)).toThrow(UsageError);
   });
 
-  it('accepts and deduplicates valid fingerprints', () => {
+  it('preserves repeated valid fingerprints as accepted occurrence counts', () => {
     expect(parseBaseline('{"schemaVersion":"1.0","fingerprints":["abcdef01","abcdef01"]}')).toEqual(
       {
         schemaVersion: '1.0',
-        fingerprints: ['abcdef01'],
+        fingerprints: ['abcdef01', 'abcdef01'],
       },
     );
   });

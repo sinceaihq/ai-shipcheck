@@ -77,7 +77,8 @@ directory. Use a different path for `--output`.
 
 A missing, unreadable, malformed or unsupported baseline is a usage error
 (exit `2`). Baseline files are strict JSON with their own schema version `1.0`;
-they contain a sorted, deduplicated `fingerprints` array, not source snippets.
+they contain a sorted `fingerprints` array with one entry per accepted
+occurrence, not source snippets.
 Review and commit the file to make acceptance visible in CI. See
 [configuration](configuration.md#baselines-for-existing-projects) for identity
 limitations and the suppression policy.
