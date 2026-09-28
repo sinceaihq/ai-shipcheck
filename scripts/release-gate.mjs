@@ -230,7 +230,7 @@ gate('no fixture credential appears in any output', () => {
 console.log('\nOutput formats');
 gate('JSON is valid and versioned', () => {
   const report = JSON.parse(scan('vulnerable-supabase', ['--format', 'json']));
-  if (report.schemaVersion !== '1.0') throw new Error(`schemaVersion is ${report.schemaVersion}`);
+  if (report.schemaVersion !== '1.1') throw new Error(`schemaVersion is ${report.schemaVersion}`);
   if (typeof report.coverage?.checksRun !== 'number') throw new Error('coverage missing');
   return `schema ${report.schemaVersion}`;
 });

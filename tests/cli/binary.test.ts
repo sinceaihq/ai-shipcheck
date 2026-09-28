@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
-import { FIXTURES, REPO_ROOT } from '../helpers/project.js';
+import { FIXTURES, REPO_ROOT, makeProject, removeProject } from '../helpers/project.js';
+import type { ScanResult } from '../../src/types/core.js';
 import { VERSION } from '../../src/version.js';
 
 const run = promisify(execFile);
@@ -35,6 +36,45 @@ async function shipcheck(...args: string[]): Promise<Ran> {
 }
 
 describe('the built binary', () => {
+  it('writes and applies a baseline, and exits 2 for a missing baseline', async () => {
+    const dir = await makeProject({});
+    try {
+      const baseline = path.join(dir, 'baseline.json');
+      const root = path.join(FIXTURES, 'vulnerable-nextjs');
+      const recorded = await shipcheck(
+        root,
+        '--baseline',
+        baseline,
+        '--write-baseline',
+        '--format',
+        'json',
+      );
+      expect(recorded.code).toBe(0);
+      expect(JSON.parse(await fs.readFile(baseline, 'utf8')).schemaVersion).toBe('1.0');
+      const original = JSON.parse(recorded.stdout) as ScanResult;
+      const applied = await shipcheck(
+        root,
+        '--baseline',
+        baseline,
+        '--format',
+        'json',
+        '--fail-on',
+        'info',
+        '--min-score',
+        '100',
+      );
+      expect(applied.code).toBe(0);
+      const result = JSON.parse(applied.stdout) as ScanResult;
+      expect(result.findings).toEqual([]);
+      expect(result.suppressedFindingCount).toBe(original.findings.length);
+      const missing = await shipcheck(root, '--baseline', path.join(dir, 'missing.json'));
+      expect(missing.code).toBe(2);
+      expect(missing.stderr).toContain('Baseline file not found');
+    } finally {
+      await removeProject(dir);
+    }
+  });
+
   it('prints its version', async () => {
     const result = await shipcheck('--version');
     expect(result.code).toBe(0);

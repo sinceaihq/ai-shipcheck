@@ -12,6 +12,8 @@ export const markdownReporter: Reporter = (result) => {
 
   lines.push('# AI Shipcheck report');
   lines.push('');
+  lines.push(`${result.suppressedFindingCount} findings suppressed by baseline.`);
+  lines.push('');
   lines.push(
     `**${verdictEmoji} ${result.verdict}** — score **${result.score}/100** across ${result.coverage.checksRun} assessed checks`,
   );
