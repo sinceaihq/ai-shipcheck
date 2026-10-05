@@ -49,6 +49,15 @@ The full policy is in [docs/RELEASING.md](docs/RELEASING.md).
   `action/dist/index.js`, which is the code a workflow pinned to `@v1`
   executes, so the rebuilt bundle is committed with it.
 
+### Fixed
+
+- Upgrade `ignore` from 7.0.6 to 7.0.11 and rebuild the GitHub Action bundle.
+  Ignore patterns now handle bracket expressions, escaped characters, trailing
+  whitespace, BOM-only lines and wildcard separators more faithfully. A trailing
+  `a/**/` pattern keeps direct files under `a/` available for scanning while
+  excluding its subdirectories. Regression tests cover both the scanner and the
+  committed Action bundle.
+
 ## [1.0.1] - 2026-08-28
 
 Documentation and repository hygiene. No change to analysis behaviour: the

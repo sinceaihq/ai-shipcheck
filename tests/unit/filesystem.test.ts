@@ -121,6 +121,40 @@ describe('walk', () => {
     expect(result.files.map((f) => f.path)).toEqual(['new.ts']);
   });
 
+  it.each(['.gitignore', '.shipcheckignore'])(
+    'keeps direct files under a trailing globstar directory pattern in %s',
+    async (ignoreFile) => {
+      const dir = await tempDir();
+      await fs.mkdir(path.join(dir, 'a', 'nested'), { recursive: true });
+      await fs.writeFile(path.join(dir, ignoreFile), 'a/**/\n');
+      await fs.writeFile(path.join(dir, 'a', 'keep.ts'), 'export const keep = true;');
+      await fs.writeFile(path.join(dir, 'a', 'nested', 'drop.ts'), 'export const drop = true;');
+
+      const result = await walk({ root: dir, accept: (p) => p.endsWith('.ts') });
+      expect(result.files.map((f) => f.path)).toEqual(['a/keep.ts']);
+    },
+  );
+
+  it('does not turn escaped ignore-file characters into regular-expression syntax', async () => {
+    const dir = await tempDir();
+    await fs.writeFile(path.join(dir, '.shipcheckignore'), '\\danger.ts\n');
+    await fs.writeFile(path.join(dir, 'danger.ts'), 'export const ignored = true;');
+    await fs.writeFile(path.join(dir, '1anger.ts'), 'export const scanned = true;');
+
+    const result = await walk({ root: dir, accept: (p) => p.endsWith('.ts') });
+    expect(result.files.map((f) => f.path)).toEqual(['1anger.ts']);
+  });
+
+  it('keeps scanning after a BOM-only first ignore-file line', async () => {
+    const dir = await tempDir();
+    await fs.writeFile(path.join(dir, '.gitignore'), '\uFEFF\r\nignored.ts\r\n');
+    await fs.writeFile(path.join(dir, 'ignored.ts'), 'export const ignored = true;');
+    await fs.writeFile(path.join(dir, 'keep.ts'), 'export const keep = true;');
+
+    const result = await walk({ root: dir, accept: (p) => p.endsWith('.ts') });
+    expect(result.files.map((f) => f.path)).toEqual(['keep.ts']);
+  });
+
   itWithSymlinks('refuses to follow a symlink pointing outside the scan root', async () => {
     const outside = await tempDir();
     await fs.writeFile(path.join(outside, 'secret.txt'), 'do not read me');
@@ -264,6 +298,51 @@ describe('looksGenerated', () => {
 });
 
 describe('IgnoreStack', () => {
+  // Regression cases for node-ignore #162-169: scanned repositories can supply
+  // these patterns through ignore files or configuration excludes. Literal
+  // metacharacter and whitespace paths are tested without creating files so
+  // the same cases run on Windows, where some filenames cannot be represented.
+  it.each([
+    ['a\\*', 'a*', false, true],
+    ['a\\*', 'ab', false, false],
+    ['a\\*', 'a', false, false],
+    ['a\\?b', 'a?b', false, true],
+    ['a\\?b', 'acb', false, false],
+    ['\\danger.ts', 'danger.ts', false, true],
+    ['\\danger.ts', '1anger.ts', false, false],
+    ['secret\t', 'secret\t', false, true],
+    ['secret\t', 'secret', false, false],
+    ['\t', '\t', false, true],
+    ['\uFEFF', 'keep.ts', false, false],
+    ['\uFEFF   ', 'keep.ts', false, false],
+    ['file[[:digit:]].ts', 'file2.ts', false, true],
+    ['file[[:digit:]].ts', 'filea.ts', false, false],
+    ['x[!a]y', 'x/y', false, false],
+    ['x[.-0]y', 'x/y', false, false],
+    ['a/**/', 'a/keep.ts', false, false],
+    ['a/**/', 'a/nested', true, true],
+    ['a/**/', 'a/nested/drop.ts', false, true],
+    ['f*o/*/*', 'foo/b/c.ts', false, true],
+    ['f*o/*/*', 'foo/b', false, false],
+    ['a*bc*d.ts', 'axbbcbcd.ts', false, true],
+    ['a*bc*d.ts', 'axbbd.ts', false, false],
+  ] as const)(
+    'pattern %j matches %j (directory: %s): %s',
+    (pattern, relativePath, isDirectory, expected) => {
+      const root = path.resolve('/tmp/project');
+      const stack = IgnoreStack.create(root, [pattern]);
+      expect(stack.ignores(path.join(root, relativePath), isDirectory)).toBe(expected);
+    },
+  );
+
+  it('allows negation below a trailing globstar without pruning the parent directory', () => {
+    const root = path.resolve('/tmp/project');
+    const stack = IgnoreStack.create(root, ['a/**', '!a/keep.ts']);
+    expect(stack.ignores(path.join(root, 'a'), true)).toBe(false);
+    expect(stack.ignores(path.join(root, 'a', 'keep.ts'), false)).toBe(false);
+    expect(stack.ignores(path.join(root, 'a', 'drop.ts'), false)).toBe(true);
+  });
+
   it('matches directories with a trailing slash', () => {
     const root = path.resolve('/tmp/project');
     const stack = IgnoreStack.create(root, ['build/']);
