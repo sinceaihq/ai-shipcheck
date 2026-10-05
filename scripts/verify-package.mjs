@@ -207,7 +207,7 @@ if (process.platform === 'win32') {
   // The .cmd shim is what `npx ai-shipcheck` actually executes on Windows, so
   // it is worth one direct check even though the rest of the suite drives the
   // entry point. cmd.exe is used because Node will not spawn a .cmd itself.
-  let shimOutput = '';
+  let shimOutput;
   try {
     shimOutput = execFileSync('cmd.exe', ['/c', windowsShim, '--version'], {
       cwd: consumer,

@@ -62,7 +62,7 @@ async function runAction(
     env[`INPUT_${key.toUpperCase()}`] = value;
   }
 
-  let stdout = '';
+  let stdout: string;
   let code = 0;
   try {
     ({ stdout } = await run(process.execPath, [ACTION], { env, maxBuffer: 32 * 1024 * 1024 }));
