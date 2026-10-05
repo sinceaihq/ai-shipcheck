@@ -47,6 +47,16 @@ export default defineRule({
     const rootLayout = ctx.index
       .withRole('next-app-special')
       .find((f) => /^(?:src\/)?app\/layout\.[cm]?[jt]sx?$/.test(f.path));
+    const note = isAppRouter
+      ? 'no error.tsx or global-error.tsx in any route segment'
+      : 'no error boundary component anywhere in the project';
+    // Match code so a string containing "<html>" cannot become the evidence anchor.
+    // A default export is a stable fallback for layouts without an html element.
+    const layoutAnchor =
+      rootLayout === undefined
+        ? undefined
+        : ([...rootLayout.matches(/<html(?:\s|>)/g)][0] ??
+          [...rootLayout.matches(/\bexport\s+default\b/g)][0]);
     ctx.report({
       explanation: isAppRouter
         ? 'This App Router project has no error.tsx or global-error.tsx anywhere, and no error boundary component. An exception thrown while rendering any route replaces the page with a blank screen.'
@@ -58,11 +68,9 @@ export default defineRule({
       // boundary belongs - and fall back to the manifest otherwise. Pointing
       // at a directory produces a location no tool can open.
       evidence: [
-        projectEvidence(ctx.index, rootLayout?.path ?? 'package.json', {
-          note: isAppRouter
-            ? 'no error.tsx or global-error.tsx in any route segment'
-            : 'no error boundary component anywhere in the project',
-        }),
+        rootLayout !== undefined && layoutAnchor !== undefined
+          ? rootLayout.evidenceAt(layoutAnchor.index, { note })
+          : projectEvidence(ctx.index, 'package.json', { note }),
       ],
     });
   },

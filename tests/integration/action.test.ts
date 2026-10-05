@@ -32,11 +32,20 @@ function parseOutputs(text: string): Record<string, string> {
   return outputs;
 }
 
-async function runAction(inputs: Record<string, string>, fixture: string): Promise<ActionRun> {
+async function runAction(
+  inputs: Record<string, string>,
+  fixture: string,
+  extraFiles: Record<string, string> = {},
+): Promise<ActionRun> {
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'shipcheck-action-'));
   await fs.cp(path.join(REPO_ROOT, 'fixtures', fixture), path.join(workspace, 'project'), {
     recursive: true,
   });
+  for (const [relative, contents] of Object.entries(extraFiles)) {
+    const target = path.join(workspace, 'project', relative);
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.writeFile(target, contents, 'utf8');
+  }
   const outputFile = path.join(workspace, 'outputs.txt');
   const summaryFile = path.join(workspace, 'summary.md');
   await fs.writeFile(outputFile, '');
@@ -97,6 +106,35 @@ describe('the bundled GitHub Action', () => {
     expect(result.outputs['high-count']).toBe('0');
     expect(result.outputs['findings-count']).toBe('0');
     expect(result.stdout).not.toContain('::error');
+  });
+
+  it('uses literal ignore-file escapes in the committed bundle without hiding findings', async () => {
+    const result = await runAction({ 'fail-on': 'high' }, 'secure-api', {
+      '.shipcheckignore': '\\danger.ts\n',
+      'danger.ts': 'eval(input);\n',
+      '1anger.ts': 'eval(input);\n',
+    });
+    try {
+      expect(result.code).toBe(1);
+      const sarif = JSON.parse(
+        await fs.readFile(path.join(result.workspace, 'shipcheck.sarif'), 'utf8'),
+      ) as {
+        runs: {
+          results: {
+            ruleId: string;
+            locations: { physicalLocation: { artifactLocation: { uri: string } } }[];
+          }[];
+        }[];
+      };
+      const evalFiles = sarif.runs[0]!.results.filter(
+        (finding) => finding.ruleId === 'security/eval-usage',
+      ).flatMap((finding) =>
+        finding.locations.map((location) => location.physicalLocation.artifactLocation.uri),
+      );
+      expect(evalFiles).toEqual(['1anger.ts']);
+    } finally {
+      await fs.rm(result.workspace, { recursive: true, force: true });
+    }
   });
 
   it('sets every documented output for a broken project', async () => {

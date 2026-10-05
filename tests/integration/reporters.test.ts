@@ -26,7 +26,7 @@ describe('json reporter', () => {
   it('emits parseable, versioned output', async () => {
     const text = getReporter('json')(await vulnerableResult(), options);
     const parsed = JSON.parse(text) as ScanResult;
-    expect(parsed.schemaVersion).toBe('1.0');
+    expect(parsed.schemaVersion).toBe('1.1');
     expect(parsed.tool.name).toBe('ai-shipcheck');
     expect(parsed.findings.length).toBeGreaterThan(0);
     expect(parsed.categories).toHaveLength(9);

@@ -1,5 +1,6 @@
 import { CATEGORY_LABELS, type Finding, type Severity } from '../types/core.js';
 import { createDefaultRegistry } from '../rules/index.js';
+import { findingFingerprint } from '../utils/fingerprint.js';
 import type { Reporter } from './types.js';
 
 /**
@@ -115,12 +116,14 @@ export const sarifReporter: Reporter = (result) => {
               `AI Shipcheck ${result.verdict} - score ${result.score}/100 across ` +
               `${result.coverage.checksRun} of ${result.coverage.checksTotal} checks ` +
               `and ${result.coverage.categoriesAssessed} of ${result.coverage.categoriesTotal} categories.` +
+              ` ${result.suppressedFindingCount} findings suppressed by baseline.` +
               (result.stats.truncated
                 ? ' A resource limit stopped the scan before the whole project was read.'
                 : ''),
           },
         },
         columnKind: 'unicodeCodePoints',
+        properties: { suppressedFindingCount: result.suppressedFindingCount },
         results,
         invocations: [
           {
@@ -161,7 +164,6 @@ function toSarifResult(
     ...(ev.note !== undefined ? { message: { text: ev.note } } : {}),
   }));
 
-  const primary = finding.evidence[0];
   return {
     ruleId: finding.ruleId,
     ruleIndex: ruleIndex.get(finding.ruleId) ?? 0,
@@ -171,9 +173,7 @@ function toSarifResult(
     },
     locations: locations.length > 0 ? locations : undefined,
     partialFingerprints: {
-      shipcheckRuleLocation: fingerprint(
-        `${finding.ruleId}|${primary?.file ?? ''}|${primary?.snippet ?? ''}`,
-      ),
+      shipcheckRuleLocation: findingFingerprint(finding),
     },
     properties: {
       category: finding.category,
@@ -194,17 +194,4 @@ function toPascalCase(id: string): string {
     .split(/[/-]/)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join('');
-}
-
-/**
- * A stable, content-derived fingerprint. FNV-1a is used because it is short,
- * dependency-free and only needs to be stable, not cryptographic.
- */
-function fingerprint(input: string): string {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash.toString(16).padStart(8, '0');
 }

@@ -14,6 +14,8 @@ export interface ParsedArgs {
   readonly failOn: Severity | 'none' | undefined;
   readonly minScore: number | undefined;
   readonly config: string | undefined;
+  readonly baseline: string | undefined;
+  readonly writeBaseline: boolean;
   readonly color: boolean | undefined;
   readonly quiet: boolean;
   readonly category: string | undefined;
@@ -44,6 +46,8 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
         'fail-on': { type: 'string' },
         'min-score': { type: 'string' },
         config: { type: 'string', short: 'c' },
+        baseline: { type: 'string' },
+        'write-baseline': { type: 'boolean' },
         'no-color': { type: 'boolean' },
         color: { type: 'boolean' },
         quiet: { type: 'boolean', short: 'q' },
@@ -93,6 +97,20 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
 type RawValues = Record<string, string | boolean | undefined>;
 
 function base(command: Command, positionals: readonly string[], values: RawValues): ParsedArgs {
+  const baseline = asString(values['baseline']);
+  const writeBaseline = values['write-baseline'] === true;
+  if (command !== 'help' && command !== 'version') {
+    if (baseline === '' || (writeBaseline && baseline === undefined)) {
+      throw new UsageError(
+        '--write-baseline requires --baseline <file>; the path must not be empty.',
+      );
+    }
+    if (command !== 'scan' && (baseline !== undefined || writeBaseline)) {
+      throw new UsageError(
+        '--baseline and --write-baseline are only supported by the scan command.',
+      );
+    }
+  }
   return {
     command,
     positionals,
@@ -101,6 +119,8 @@ function base(command: Command, positionals: readonly string[], values: RawValue
     failOn: parseFailOn(values['fail-on']),
     minScore: parseMinScore(values['min-score']),
     config: asString(values['config']),
+    baseline,
+    writeBaseline,
     color: values['no-color'] === true ? false : values['color'] === true ? true : undefined,
     quiet: values['quiet'] === true,
     category: asString(values['category']),

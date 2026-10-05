@@ -19,10 +19,20 @@ The full policy is in [docs/RELEASING.md](docs/RELEASING.md).
 
 ### Added
 
+- `--baseline <file>` and `--write-baseline` let existing projects record accepted
+  findings and report only new ones. Matching uses the existing SARIF fingerprint;
+  suppressed findings are counted in every output format and excluded from scoring,
+  verdicts and threshold evaluation. Baseline files use schema version `1.0`.
+
 - `.github/CODEOWNERS`, routing review requests to a team rather than to a
   person, so they keep arriving when any one maintainer steps away.
 
 ### Changed
+
+- JSON report schema `1.1` adds the always-present `suppressedFindingCount` field
+  (`0` without a baseline). Check counts and pass/fail status describe remaining
+  findings; fully suppressed checks carry an explanatory reason. This additive
+  public contract change requires a minor release under the versioning policy.
 
 - `GOVERNANCE.md` records the repository's own configuration — branch
   protection, the two deliberate exceptions in it, the enabled security
@@ -38,6 +48,15 @@ The full policy is in [docs/RELEASING.md](docs/RELEASING.md).
 - esbuild 0.28 and ESLint 10. The esbuild bump regenerates
   `action/dist/index.js`, which is the code a workflow pinned to `@v1`
   executes, so the rebuilt bundle is committed with it.
+
+### Fixed
+
+- Upgrade `ignore` from 7.0.6 to 7.0.11 and rebuild the GitHub Action bundle.
+  Ignore patterns now handle bracket expressions, escaped characters, trailing
+  whitespace, BOM-only lines and wildcard separators more faithfully. A trailing
+  `a/**/` pattern keeps direct files under `a/` available for scanning while
+  excluding its subdirectories. Regression tests cover both the scanner and the
+  committed Action bundle.
 
 ## [1.0.1] - 2026-08-28
 
