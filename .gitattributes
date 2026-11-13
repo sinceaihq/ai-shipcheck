@@ -1,0 +1,13 @@
+# Check text files out with LF line endings on every platform.
+#
+# Git for Windows installs with core.autocrlf=true, which rewrites LF to CRLF
+# on checkout. Prettier rejects CRLF, so on a default Windows setup
+# `npm run format:check` - and with it `npm run check` - failed on a fresh
+# clone before a single line had been edited. CI could not see it: the format
+# check runs on Linux only.
+#
+# The scanner itself does not care which ending a file has, and
+# tests/integration/fixtures.test.ts holds it to that on every platform.
+* text=auto eol=lf
+
+*.png binary

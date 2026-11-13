@@ -12,8 +12,12 @@ npm install
 npm run check
 ```
 
-`npm run check` is the whole gate: typecheck, lint, documentation sync, tests,
-build. If it passes locally it will pass in CI.
+`npm run check` is the everyday gate: typecheck, lint, formatting,
+documentation sync, tests, and both builds. CI runs two things it does not —
+the coverage thresholds (`npm run test:coverage`) and verification of the
+packed tarball (`npm run verify:package`) — so run those as well before a
+change that adds code paths or touches packaging. `npm run gate` runs
+everything.
 
 Node 22 or newer is required. CI runs Node 22 and 24 on Linux, macOS and
 Windows, plus the current Node release informationally.
@@ -32,7 +36,8 @@ Windows, plus the current Node release informationally.
 | `npm run verify:package` | Clean-room package verification |
 | `npm run corpus:sync` | Clone the validation corpus at its pinned commits |
 | `npm run corpus:scan` | Scan the corpus and write `corpus/results/` |
-| `npm run check` | Everything |
+| `npm run check` | Types, lint, format, docs sync, tests, builds |
+| `npm run gate` | The full release gate: `check` plus coverage, package verification and the release checks. Needs a clean working tree |
 
 ## What this project optimises for
 
