@@ -343,6 +343,32 @@ describe('IgnoreStack', () => {
     expect(stack.ignores(path.join(root, 'a', 'drop.ts'), false)).toBe(true);
   });
 
+  // Regression cases for the ignore 7.0.11 -> 7.0.14 upgrade. Each expectation
+  // was confirmed against `git check-ignore` (git 2.51). The five cases marked
+  // "7.0.11: false" fail on the old version - a directory the repository's own
+  // .gitignore excludes was being scanned. The rest pin the boundaries.
+  it.each([
+    // Git trims the trailing space first, leaving `bar/`, which has no inner
+    // slash and so matches at any depth. 7.0.11 anchored it to the root.
+    ['bar/ ', 'bar', true, true],
+    ['bar/ ', 'a/bar', true, true], // 7.0.11: false
+    ['bar/ ', 'a/barn', true, false],
+    // A run of three or more asterisks filling a path segment is a globstar.
+    ['***/gen', 'gen', true, true], // 7.0.11: false
+    ['***/gen', 'a/b/gen', true, true], // 7.0.11: false
+    ['***/gen', 'a/b/genx', true, false],
+    ['a/***/b', 'a/b', true, true], // 7.0.11: false
+    ['a/***/b', 'a/x/y/b', true, true], // 7.0.11: false
+    ['a/***/b', 'x/a/b', true, false],
+  ] as const)(
+    'git-faithful pattern %j matches %j (directory: %s): %s',
+    (pattern, relativePath, isDirectory, expected) => {
+      const root = path.resolve('/tmp/project');
+      const stack = IgnoreStack.create(root, [pattern]);
+      expect(stack.ignores(path.join(root, relativePath), isDirectory)).toBe(expected);
+    },
+  );
+
   it('matches directories with a trailing slash', () => {
     const root = path.resolve('/tmp/project');
     const stack = IgnoreStack.create(root, ['build/']);
