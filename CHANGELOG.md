@@ -57,6 +57,13 @@ The full policy is in [docs/RELEASING.md](docs/RELEASING.md).
   `a/**/` pattern keeps direct files under `a/` available for scanning while
   excluding its subdirectories. Regression tests cover both the scanner and the
   committed Action bundle.
+- Upgrade `ignore` from 7.0.11 to 7.0.14 and rebuild the GitHub Action bundle.
+  Two `.gitignore` shapes now match the way git matches them: a directory
+  pattern followed by a trailing space (`bar/ `) applies at any depth instead
+  of only at the root, and a run of three or more asterisks filling a path
+  segment (`***/gen`, `a/***/b`) is a globstar. Both previously left an
+  excluded directory in the scan. The 20-repository corpus is unchanged by the
+  upgrade: the same 33,438 files and the same 2,818 findings.
 
 ## [1.0.1] - 2026-08-28
 
