@@ -13,6 +13,17 @@ updates:
     # that peers `typescript <6.1.0`. One major per pull request means each is
     # judged on its own and a single incompatibility does not block the rest.
     groups:
+      # The one deliberate exception to "one major per pull request".
+      # @vitest/coverage-v8 peers an exact vitest version, so a pull request
+      # that moves only one of them cannot pass `npm ci`. Raised separately,
+      # the v4 and v5 upgrades each arrived as two pull requests that failed
+      # every job and could not be merged in either order. No update-types
+      # filter, so majors are included. Listed first because a dependency
+      # joins the first group it matches.
+      vitest:
+        patterns:
+          - 'vitest'
+          - '@vitest/*'
       dev-dependencies:
         dependency-type: development
         update-types:
