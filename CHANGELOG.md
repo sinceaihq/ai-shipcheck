@@ -48,6 +48,13 @@ The full policy is in [docs/RELEASING.md](docs/RELEASING.md).
 - esbuild 0.28 and ESLint 10. The esbuild bump regenerates
   `action/dist/index.js`, which is the code a workflow pinned to `@v1`
   executes, so the rebuilt bundle is committed with it.
+- Vitest and `@vitest/coverage-v8` 5.1, upgraded together. The coverage
+  provider peers an exact Vitest version, so the two cannot move separately.
+  No test or configuration change was needed and the coverage thresholds are
+  unchanged: measured coverage moved by at most 0.02 points. Dependabot now
+  raises the two as one pull request, majors included. Development needs
+  Node 22.12 or newer, which is Vitest 5's floor; the published package's
+  supported range (`>=22.0.0`) is unaffected.
 
 ### Fixed
 

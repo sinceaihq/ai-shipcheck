@@ -15,8 +15,9 @@ npm run check
 `npm run check` is the whole gate: typecheck, lint, documentation sync, tests,
 build. If it passes locally it will pass in CI.
 
-Node 22 or newer is required. CI runs Node 22 and 24 on Linux, macOS and
-Windows, plus the current Node release informationally.
+Node 22.12 or newer is required to develop (the test runner's floor; the
+published package itself supports Node 22.0). CI runs Node 22 and 24 on Linux,
+macOS and Windows, plus the current Node release informationally.
 
 ### Useful commands
 
