@@ -9,6 +9,16 @@ const CONNECTION_STRING =
 const LOCAL_HOST =
   /^(?:localhost|127\.0\.0\.1|0\.0\.0\.0|host\.docker\.internal|db|postgres|mysql|redis|mongo)(?::\d+)?$/;
 
+/**
+ * An authority that describes the shape of a connection string instead of
+ * naming a server: `HOST:PORT`, `host:port`, `hostname`. A port that is a word
+ * cannot be dialled, so `mysql://USER:PASSWORD@HOST:PORT/DATABASE` is help
+ * text - an error message, a form placeholder - and there is no credential in
+ * it to leak. A port supplied by interpolation (`:${port}`) is not a word, and
+ * a URL written that way still carries whatever password precedes it.
+ */
+const SYNTAX_TEMPLATE_HOST = /^(?:host(?:name)?(?::[A-Za-z_]+)?|[^:[\]]+:[A-Za-z_]+)$/i;
+
 export default defineRule({
   meta: {
     id: 'database/hardcoded-connection-string',
@@ -49,6 +59,7 @@ export default defineRule({
       const [scheme, user, password, host] = match.groups;
       if (password === undefined || host === undefined) continue;
       if (password.startsWith('${') || password.includes('$')) continue;
+      if (SYNTAX_TEMPLATE_HOST.test(host)) continue;
       if (
         /^(?:password|postgres|root|example|changeme|secret|test|mysecretpassword)$/i.test(password)
       ) {

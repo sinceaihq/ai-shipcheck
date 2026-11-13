@@ -57,6 +57,32 @@ The full policy is in [docs/RELEASING.md](docs/RELEASING.md).
   `a/**/` pattern keeps direct files under `a/` available for scanning while
   excluding its subdirectories. Regression tests cover both the scanner and the
   committed Action bundle.
+- Thirteen of the 39 blocking findings across the validation corpus were false
+  positives. A blocker forces `NOT READY` by itself, so each of these was a wrong
+  verdict, not a noisy line. All 39 were read against the source they cite; the
+  record is in [corpus/TRIAGE.md](corpus/TRIAGE.md). Corpus findings went from
+  2,818 to 2,805 with none added.
+
+  - `security/hardcoded-secret` no longer reports names as credentials. A literal
+    on a credential-named binding was reported whenever it was long enough and
+    passed an entropy threshold — which ordinary multi-word identifiers do. Error
+    codes (`TOKEN_EXPIRED = 'TOKEN_EXPIRED'`), storage keys
+    (`"anythingllm_authTimestamp"`), index names, translated labels and
+    `ENTER_API_KEY_HERE` instructions were all critical blockers. A source
+    literal that spells its own binding, or is built entirely from words in an
+    identifier convention, is now recognised as a name. The `placeholder` text of
+    a form field is skipped. Provider-format keys, tokens containing digits, and
+    anything in a committed `.env` file are detected as before. One case is given
+    up deliberately and documented in `docs/LIMITATIONS.md`: a secret made only
+    of dictionary words in source code.
+  - `security/unsafe-shell-exec` reads the command argument rather than a fixed
+    300 characters after the call. `execSync('yarn config get x', { cwd })` was a
+    blocker when the next statement, or the callback, contained a template
+    literal.
+  - `database/hardcoded-connection-string` no longer reports text that describes
+    the format of a connection string, such as
+    `mysql://USER:PASSWORD@HOST:PORT/DATABASE` in an error message or a form
+    placeholder. A URL whose port is supplied by interpolation is still reported.
 
 ## [1.0.1] - 2026-08-28
 

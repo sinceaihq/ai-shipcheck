@@ -128,6 +128,14 @@ Every fix ships with a regression test.
   understand Next.js route conventions. An Express application is checked for
   everything else but will not get a "this route writes without an auth check"
   finding. This is the single largest gap in v1 and is on the roadmap.
+- **Secrets that read like names.** Outside the exact provider formats
+  (`sk-ant-…`, `ghp_…`, a PEM block), `security/hardcoded-secret` looks for an
+  *opaque* token on a credential-named binding. A secret written as words in an
+  identifier convention — `const jwtSecret = 'MySuperSecretJwtSigningKey'`, or
+  `my-super-secret-jwt-signing-key` — is indistinguishable from an error code
+  or a storage key and is not reported from source code. The same value in a
+  committed `.env` file is. Short secrets (under 24 characters) are not
+  detected by this path at all.
 - **Obfuscated or minified code.** Files with very long average lines are
   skipped as generated.
 - **Very large files.** Files over 1 MiB or 20,000 lines are skipped; the

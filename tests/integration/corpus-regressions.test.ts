@@ -48,6 +48,193 @@ describe('security/hardcoded-secret', () => {
     });
     expect(fired).toContain('security/hardcoded-secret');
   });
+
+  // Nine of the thirteen blocking findings this rule produced across the
+  // corpus were names, not credentials. Each literal sat on a binding whose
+  // name mentions a credential ("token", "auth", "apiKey"), was at least 24
+  // characters, and passed the entropy threshold - which ordinary multi-word
+  // identifiers do, because per-character entropy of English is above it.
+  it.each([
+    [
+      // documenso/documenso, packages/lib/errors/app-error.ts
+      'an error code whose value is its own name',
+      "export enum AppErrorCode {\n  CSC_CREDENTIAL_LIST_EMPTY = 'CSC_CREDENTIAL_LIST_EMPTY',\n}",
+    ],
+    [
+      // langchain-ai/langchainjs, libs/langchain-core/src/utils/gateway.ts
+      'the name of an environment variable',
+      'const LANGSMITH_GATEWAY_API_KEY = "LANGSMITH_GATEWAY_API_KEY";\nexport const key = process.env[LANGSMITH_GATEWAY_API_KEY];',
+    ],
+    [
+      // nextauthjs/next-auth, packages/adapter-pouchdb/src/index.ts
+      'a database index name',
+      'export function indexes(options: { indexes?: Record<string, string> }) {\n  const { verificationTokenByToken = "nextAuthVerificationRequestByToken" } = options.indexes ?? {};\n  return verificationTokenByToken;\n}',
+    ],
+    [
+      // nextauthjs/next-auth, packages/adapter-unstorage/src/index.ts
+      'a storage key prefix',
+      'export const defaults = {\n  authenticatorUserKeyPrefix: "authenticator:by-user-id:",\n};',
+    ],
+    [
+      // Mintplex-Labs/anything-llm, frontend/src/utils/constants.js
+      'a localStorage key',
+      'export const AUTH_TIMESTAMP = "anythingllm_authTimestamp";',
+    ],
+    [
+      // Mintplex-Labs/anything-llm, frontend/src/locales/nl/common.js - a
+      // blocking finding on a localisation file, in Dutch rather than Thai.
+      'a translated form label',
+      'export const nl = {\n  auth_type: "Confluence-authenticatietype",\n};',
+    ],
+    [
+      // Mintplex-Labs/anything-llm,
+      // server/endpoints/api/openai/compatibility-test-script.cjs
+      'an instruction to fill a key in',
+      'export const client = {\n  apiKey: "ENTER_ANYTHINGLLM_API_KEY_HERE",\n};',
+    ],
+  ])('does not treat %s as a credential', async (_what, source) => {
+    const fired = await scanCase({ 'lib/a.ts': source });
+    expect(fired).not.toContain('security/hardcoded-secret');
+  });
+
+  it('does not treat the placeholder text of a form field as a credential', async () => {
+    // Found in Mintplex-Labs/anything-llm,
+    // frontend/src/components/VectorDBSelection/ChromaDBOptions/index.jsx:
+    // example text shown in an empty input, which happens to start `sk-`.
+    const fired = await scanCase({
+      'components/ChromaOptions.tsx':
+        'export function ChromaOptions() {\n  return <input type="password" name="ChromaApiKey" placeholder="sk-myApiKeyToAccessMyChromaInstance" />;\n}',
+    });
+    expect(fired).not.toContain('security/hardcoded-secret');
+  });
+
+  it.each([
+    [
+      // No digits, but not built from words either: capitals sit next to each
+      // other, which no naming convention produces.
+      'a letters-only random token',
+      "export const sessionSecret = 'kJHgfDSAqweRTYuiOPlmNBvcXZasDFgh';",
+    ],
+    [
+      'a hexadecimal token',
+      "export const webhookToken = '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b';",
+    ],
+    [
+      // Word-shaped, but digits make it more than a name.
+      'a token with a readable prefix',
+      "export const apiToken = 'live_Zq7Rm4pLv9WxKd2NbTgH5sYcJf8Ae';",
+    ],
+  ])('still detects %s on a secret-named binding', async (_what, source) => {
+    const fired = await scanCase({ 'lib/a.ts': source });
+    expect(fired).toContain('security/hardcoded-secret');
+  });
+
+  it('still reports a secret made of words in a committed environment file', async () => {
+    // The right-hand side of an environment file is always a configured
+    // value, never a name, so being built from words excuses nothing there.
+    const fired = await scanCase({
+      '.env': 'SESSION_SECRET=CorrectHorseBatteryStapleSigningKey\n',
+    });
+    expect(fired).toContain('security/hardcoded-secret');
+  });
+
+  it('still detects a key in another attribute of a field that has a placeholder', async () => {
+    const fired = await scanCase({
+      'components/KeyField.tsx':
+        'export function KeyField() {\n  return <input placeholder="Your API key" defaultValue="sk-SHIPCHECKFIXTUREKEY0000000000000000" />;\n}',
+    });
+    expect(fired).toContain('security/hardcoded-secret');
+  });
+});
+
+describe('security/unsafe-shell-exec', () => {
+  async function reportedLines(files: Record<string, string>): Promise<number[]> {
+    const dir = await makeProject({ 'package.json': NEXT_PKG, ...files });
+    try {
+      const result = await scanDirectory(dir);
+      return result.findings
+        .filter((finding) => finding.ruleId === 'security/unsafe-shell-exec')
+        .map((finding) => finding.evidence[0]!.line);
+    } finally {
+      await removeProject(dir);
+    }
+  }
+
+  it('does not blame a constant command for interpolation in the next statement', async () => {
+    // Found in vitejs/vite, packages/vite/src/node/server/index.ts: the rule
+    // read 300 characters past the opening parenthesis, so a fixed command was
+    // reported - as a blocker - because the *following* call used a template
+    // literal. The second call does interpolate and is still reported.
+    const lines = await reportedLines({
+      'lib/yarn.ts': [
+        "import { execSync } from 'node:child_process';",
+        'export function yarnCacheDir(cwd: string): string {',
+        "  const enableGlobalCache = execSync('yarn config get enableGlobalCache', { cwd }).toString().trim() === 'true';",
+        "  return execSync(`yarn config get ${enableGlobalCache ? 'globalFolder' : 'cacheFolder'}`, { cwd }).toString().trim();",
+        '}',
+      ].join('\n'),
+    });
+    expect(lines).toEqual([4]);
+  });
+
+  it('does not read a template literal in the callback as the command', async () => {
+    // Found in langchain-ai/langchainjs, environment_tests/scripts/test-runner.ts:
+    // the only interpolation near the call was the error message built after
+    // the process had exited.
+    const lines = await reportedLines({
+      'lib/run.ts': [
+        "import { exec } from 'node:child_process';",
+        'export function run(command: string): void {',
+        '  exec(command, (error) => {',
+        '    if (error) console.error(`Command failed: ${command}`);',
+        '  });',
+        '}',
+      ].join('\n'),
+    });
+    expect(lines).toEqual([]);
+  });
+
+  it('still reports interpolation and concatenation in the command itself', async () => {
+    const lines = await reportedLines({
+      'lib/git.ts': [
+        "import { exec, execSync } from 'node:child_process';",
+        'export function clone(url: string, dir: string, ref: string): void {',
+        '  exec(`git clone ${url} ${dir}`, () => {});',
+        "  execSync('git -C ' + dir + ' checkout ' + ref);",
+        "  execSync('git -C ' + dir);",
+        '}',
+      ].join('\n'),
+    });
+    expect(lines).toEqual([3, 4, 5]);
+  });
+});
+
+describe('database/hardcoded-connection-string', () => {
+  it('does not report text describing the shape of a connection string', async () => {
+    // Found in drizzle-team/drizzle-orm (drizzle-kit/src/cli/connections.ts,
+    // an error message) and Mintplex-Labs/anything-llm (PGVectorOptions, the
+    // placeholder of a form field). Both were blocking findings. A port that
+    // is a word rather than a number cannot be dialled.
+    const fired = await scanCase({
+      'lib/connect.ts':
+        "export function requireDatabase(name?: string): void {\n  if (!name) throw new Error('You should specify a database name in connection string (mysql://USER:PASSWORD@HOST:PORT/DATABASE)');\n}",
+      'components/PgOptions.tsx':
+        'export const PgOptions = () => <input name="conn" placeholder="postgresql://username:password@host:port/database" />;',
+    });
+    expect(fired).not.toContain('database/hardcoded-connection-string');
+  });
+
+  it.each([
+    ['a numeric port', "'postgres://app:Hx9Kd2NbTgH5sYcJ@db.acme-corp.net:5432/app'"],
+    ['no port', "'mongodb+srv://app:Hx9Kd2NbTgH5sYcJ@cluster0.acme-corp.net/app'"],
+    // Only the port is supplied at runtime; the password is still in source.
+    ['an interpolated port', '`postgres://app:Hx9Kd2NbTgH5sYcJ@db.acme-corp.net:${port}/app`'],
+  ])('still reports a real password with %s', async (_what, literal) => {
+    const fired = await scanCase({
+      'lib/db.ts': `const port = 5432;\nexport const url = ${literal};\nexport { port };`,
+    });
+    expect(fired).toContain('database/hardcoded-connection-string');
+  });
 });
 
 describe('database RLS rules', () => {
