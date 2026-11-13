@@ -4010,6 +4010,7 @@ var MIN_ENTROPY_LENGTH = 24;
 var ENTROPY_THRESHOLD = 3.6;
 var SECRET_ASSIGNMENT = /(?:const|let|var|readonly|public|private)?\s*([A-Za-z_$][\w$]*)\s*[:=]\s*$/;
 var SECRET_NAME = /(?:secret|token|password|passwd|pwd|apikey|api_key|accesskey|access_key|privatekey|private_key|credential|auth|clientsecret|client_secret|dsn|connectionstring|connection_string)/i;
+var PLACEHOLDER_ATTRIBUTE = /\bplaceholder\s*[:=]\s*\{?\s*$/;
 var hardcoded_secret_default = defineRule({
   meta: {
     id: "security/hardcoded-secret",
@@ -4073,9 +4074,10 @@ var hardcoded_secret_default = defineRule({
       const value = literal.value;
       if (value.length < 12 || value.length > 512) continue;
       const before = content.slice(Math.max(0, literal.start - 80), literal.start);
+      if (PLACEHOLDER_ATTRIBUTE.test(before)) continue;
       const assignment = SECRET_ASSIGNMENT.exec(before);
       const assignedTo = assignment?.[1] ?? null;
-      const verdict = classify(value, assignedTo);
+      const verdict = classify(value, assignedTo, { inSource: true });
       if (verdict === null) continue;
       reported++;
       ctx.report({
@@ -4087,7 +4089,7 @@ var hardcoded_secret_default = defineRule({
     }
   }
 });
-function classify(value, assignedTo) {
+function classify(value, assignedTo, options = {}) {
   if (isPlaceholderValue(value)) return null;
   const signature = matchSignature(value);
   if (signature !== null) {
@@ -4095,14 +4097,35 @@ function classify(value, assignedTo) {
   }
   if (assignedTo === null || !SECRET_NAME.test(assignedTo)) return null;
   if (value.length < MIN_ENTROPY_LENGTH) return null;
+  if (sameName(value, assignedTo)) return null;
   if (!/^[A-Za-z0-9_\-+/=.:]+$/.test(value)) return null;
   if (/\s/.test(value)) return null;
   if (value.startsWith("http://") || value.startsWith("https://")) return null;
   if (value.startsWith("./") || value.startsWith("../") || value.startsWith("/")) return null;
   if (/^[a-z]+(?:[-_.][a-z0-9]+)+$/.test(value)) return null;
+  if (options.inSource === true && isBuiltFromWords(value)) return null;
   if (/[|\\()[\]{}*+^$?<>!]/.test(value)) return null;
   if (shannonEntropy(value) < ENTROPY_THRESHOLD) return null;
   return { label: "Credential", confidence: "medium" };
+}
+function sameName(a, b) {
+  const normalise = (s) => s.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+  return normalise(a) === normalise(b);
+}
+function isBuiltFromWords(value) {
+  const segments = value.split(/[-_.:]/);
+  if (segments.at(-1) === "") segments.pop();
+  let words = 0;
+  for (const segment of segments) {
+    if (!/^[A-Za-z]+$/.test(segment)) return false;
+    if (/^[A-Z]+$/.test(segment)) {
+      words += 1;
+      continue;
+    }
+    if (/[A-Z](?![a-z])/.test(segment)) return false;
+    words += 1 + (segment.slice(1).match(/[A-Z]/g)?.length ?? 0);
+  }
+  return words >= 2;
 }
 
 // src/rules/security/insecure-randomness.ts
@@ -4380,8 +4403,8 @@ var unsafe_shell_exec_default = defineRule({
       const usesShellOption = /shell\s*:\s*(?:true|['"])/.test(argsRegion);
       const isShellFn = fn === "exec" || fn === "execSync";
       if (!isShellFn && !usesShellOption) continue;
-      const interpolated = hasInterpolation(file.content, match.index);
-      if (!interpolated) continue;
+      const command = firstArgument(file, match.index);
+      if (command === null || !hasInterpolation(command)) continue;
       reported++;
       ctx.report({
         title: `${fn}() runs a shell command built from interpolated values`,
@@ -4392,13 +4415,29 @@ var unsafe_shell_exec_default = defineRule({
     }
   }
 });
-function hasInterpolation(content, offset) {
-  const open = content.indexOf("(", offset);
-  if (open === -1) return false;
-  const region = content.slice(open, open + 300);
-  if (/`[^`]*\$\{/.test(region)) return true;
-  if (/['"][^'"\n]*['"]\s*\+/.test(region)) return true;
-  if (/\+\s*[A-Za-z_$][\w$.]*\s*[,)]/.test(region)) return true;
+var MAX_COMMAND_LENGTH = 4e3;
+function firstArgument(file, offset) {
+  const code = file.code;
+  const open = code.indexOf("(", offset);
+  if (open === -1) return null;
+  const limit = Math.min(code.length, open + 1 + MAX_COMMAND_LENGTH);
+  let depth = 0;
+  for (let i = open + 1; i < limit; i++) {
+    const ch = code[i];
+    if (ch === "(" || ch === "[" || ch === "{") depth++;
+    else if (ch === ")" || ch === "]" || ch === "}") {
+      if (depth === 0) return file.content.slice(open + 1, i);
+      depth--;
+    } else if (ch === "," && depth === 0) {
+      return file.content.slice(open + 1, i);
+    }
+  }
+  return null;
+}
+function hasInterpolation(command) {
+  if (/`[^`]*\$\{/.test(command)) return true;
+  if (/['"][^'"\n]*['"]\s*\+/.test(command)) return true;
+  if (/\+\s*[A-Za-z_$][\w$.]*\s*(?:[,)]|$)/.test(command)) return true;
   return false;
 }
 
@@ -5092,6 +5131,7 @@ var destructive_migration_default = defineRule({
 // src/rules/database/hardcoded-connection-string.ts
 var CONNECTION_STRING = /\b(postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|rediss|amqp|clickhouse):\/\/([^:@\s/'"]{1,64}):([^@\s'"]{1,256})@([^\s/'"]{1,256})/g;
 var LOCAL_HOST = /^(?:localhost|127\.0\.0\.1|0\.0\.0\.0|host\.docker\.internal|db|postgres|mysql|redis|mongo)(?::\d+)?$/;
+var SYNTAX_TEMPLATE_HOST = /^(?:host(?:name)?(?::[A-Za-z_]+)?|[^:[\]]+:[A-Za-z_]+)$/i;
 var hardcoded_connection_string_default = defineRule({
   meta: {
     id: "database/hardcoded-connection-string",
@@ -5127,6 +5167,7 @@ var hardcoded_connection_string_default = defineRule({
       const [scheme, user, password, host] = match.groups;
       if (password === void 0 || host === void 0) continue;
       if (password.startsWith("${") || password.includes("$")) continue;
+      if (SYNTAX_TEMPLATE_HOST.test(host)) continue;
       if (/^(?:password|postgres|root|example|changeme|secret|test|mysecretpassword)$/i.test(password)) {
         if (LOCAL_HOST.test(host)) continue;
       }

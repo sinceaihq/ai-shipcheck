@@ -1,3 +1,4 @@
+import type { SourceFile } from '../../analysis/source-file.js';
 import { defineRule } from '../../core/define-rule.js';
 import { isNonProductionFile, MAX_FINDINGS_PER_RULE } from '../helpers.js';
 
@@ -41,8 +42,8 @@ export default defineRule({
       const isShellFn = fn === 'exec' || fn === 'execSync';
       if (!isShellFn && !usesShellOption) continue;
 
-      const interpolated = hasInterpolation(file.content, match.index);
-      if (!interpolated) continue;
+      const command = firstArgument(file, match.index);
+      if (command === null || !hasInterpolation(command)) continue;
 
       reported++;
       ctx.report({
@@ -55,16 +56,47 @@ export default defineRule({
   },
 });
 
+/** Longest command expression worth reading; anything longer is not a call. */
+const MAX_COMMAND_LENGTH = 4000;
+
 /**
- * True when the first argument of the call at `offset` is a template literal
- * with substitutions or a concatenation involving a non-literal.
+ * Source text of the first argument of the call at `offset` - the command.
+ *
+ * The extent is found on the masked view, where string, template and comment
+ * bodies are blanked, so a comma or a parenthesis inside the command text
+ * cannot end it early. Reading a fixed window instead reported a constant
+ * command whenever the *next* statement, or the callback, happened to contain
+ * a template literal.
+ *
+ * @returns null when the argument list is not closed within a sane distance,
+ *   which is a malformed file rather than a command to judge.
  */
-function hasInterpolation(content: string, offset: number): boolean {
-  const open = content.indexOf('(', offset);
-  if (open === -1) return false;
-  const region = content.slice(open, open + 300);
-  if (/`[^`]*\$\{/.test(region)) return true;
-  if (/['"][^'"\n]*['"]\s*\+/.test(region)) return true;
-  if (/\+\s*[A-Za-z_$][\w$.]*\s*[,)]/.test(region)) return true;
+function firstArgument(file: SourceFile, offset: number): string | null {
+  const code = file.code;
+  const open = code.indexOf('(', offset);
+  if (open === -1) return null;
+  const limit = Math.min(code.length, open + 1 + MAX_COMMAND_LENGTH);
+  let depth = 0;
+  for (let i = open + 1; i < limit; i++) {
+    const ch = code[i];
+    if (ch === '(' || ch === '[' || ch === '{') depth++;
+    else if (ch === ')' || ch === ']' || ch === '}') {
+      if (depth === 0) return file.content.slice(open + 1, i);
+      depth--;
+    } else if (ch === ',' && depth === 0) {
+      return file.content.slice(open + 1, i);
+    }
+  }
+  return null;
+}
+
+/**
+ * True when a command expression is a template literal with substitutions or
+ * a concatenation involving a non-literal.
+ */
+function hasInterpolation(command: string): boolean {
+  if (/`[^`]*\$\{/.test(command)) return true;
+  if (/['"][^'"\n]*['"]\s*\+/.test(command)) return true;
+  if (/\+\s*[A-Za-z_$][\w$.]*\s*(?:[,)]|$)/.test(command)) return true;
   return false;
 }

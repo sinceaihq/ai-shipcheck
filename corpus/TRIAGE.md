@@ -64,10 +64,47 @@ A blocker overrides the score. These got the most scrutiny.
 | `security/public-env-secret` | **False positive** | A PostHog project key is designed to be in the page. The known-public list now covers the analytics, error-reporting, search and realtime vendors. |
 | `ai-cost/ai-key-exposed-to-client` | **Mixed** | Genuine in `environment_tests/` sample code (now excluded as non-production); in `langchain-openai` it is a library pass-through. Blocks only for a deployable application. |
 | `database/raw-sql-interpolation` | **False positive** | `Prisma.sql\`…\`` and `sql<number>\`…\`` are the documented *safe* forms and were reported as injection — a lookbehind rejected member access, and a generic type argument broke the tag match. Also now blocks only in request-handling code; in a query builder the same construct is a different risk. |
-| `security/unsafe-shell-exec` | True positive | No change. |
+| `security/unsafe-shell-exec` | True positive | No change. *Revised in the second pass, below.* |
 | `security/committed-env-file` | **False positive** | `vitejs/vite` commits `.env` files as inputs to its env-loading tests. Now excludes non-production paths. |
-| `database/hardcoded-connection-string` | True positive | No change. |
+| `database/hardcoded-connection-string` | True positive | No change. *Revised in the second pass, below.* |
 | `ai-cost/llm-route-without-rate-limit` | True positive | No change. |
+
+## Second pass: every blocker, one at a time
+
+The first pass classified rules by sampling. That is the right method for a rule
+that fires 661 times, but a blocker is different: each instance forces a
+`NOT READY` verdict by itself, so each instance has to be right. In November
+2026 all 39 blocking findings across the corpus were read against the source
+they cite.
+
+| | Before | After |
+| --- | --- | --- |
+| Findings across the corpus | 2,818 | **2,805** |
+| Blocking findings | 39 | **26** |
+| Findings added | — | 0 |
+
+Thirteen were false positives, in three rules. Two of those rules had been
+recorded above as "true positive, no change" on the strength of a sample that
+happened to miss the bad cases.
+
+| Rule | Blockers | False | What was wrong, and the change |
+| --- | --- | --- | --- |
+| `security/hardcoded-secret` | 13 | **9** | Eight were *names*: an error code (`CSC_CREDENTIAL_LIST_EMPTY = 'CSC_CREDENTIAL_LIST_EMPTY'` in `documenso`), an environment-variable name held in a constant (`langchainjs`), PouchDB index names and a storage key prefix (`next-auth`), a `localStorage` key, a Dutch form label and an `ENTER_…_API_KEY_HERE` instruction (`anything-llm`). Each sat on a binding whose name mentions a credential and passed the entropy threshold, because per-character entropy does not separate words from tokens: `nextAuthVerificationRequestByToken` measures 4.11 bits, above the 4.0 a hexadecimal token can reach. A source literal that spells its own binding, or is built entirely from words in an identifier convention, is no longer treated as an opaque token. The ninth was the `placeholder` text of a form field that began `sk-`; placeholder attributes are now skipped. |
+| `security/unsafe-shell-exec` | 3 | **2** | The rule read a fixed 300 characters past the opening parenthesis rather than the command argument. `execSync('yarn config get enableGlobalCache', { cwd })` in `vitejs/vite` was reported because the *next* statement used a template literal, and a `spawn` in `langchainjs` because of the error message built in its `close` handler. Only the first argument of the call is read now. |
+| `database/hardcoded-connection-string` | 2 | **2** | Both were text describing the format: an error message in `drizzle-kit` (`mysql://USER:PASSWORD@HOST:PORT/DATABASE`) and a form placeholder in `anything-llm` (`postgresql://username:password@host:port/database`). An authority whose port is a word, or whose host is literally `host`, is a syntax template and is skipped. |
+
+The remaining 26 were left alone. They are either correct
+(`rejectUnauthorized: false` set unconditionally in `dubinc/dub`) or depend on
+context a static tool cannot see: a committed token that is a local-development
+default, an Algolia search key that is public by design, a test credential in a
+package that is itself a test suite. Those are reported accurately; whether
+they matter is the reader's call.
+
+One true-positive class is given up, deliberately. A secret made of dictionary
+words in an identifier convention — `const jwtSecret = 'MySuperSecretJwtSigningKey'`
+— is no longer reported from source code, as `my-super-secret-jwt-signing-key`
+already was not. The same value in a committed `.env` file still is. It is
+listed in [docs/LIMITATIONS.md](../docs/LIMITATIONS.md).
 
 ## High-volume rules
 
