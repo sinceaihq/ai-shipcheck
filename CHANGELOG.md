@@ -57,6 +57,17 @@ The full policy is in [docs/RELEASING.md](docs/RELEASING.md).
   `a/**/` pattern keeps direct files under `a/` available for scanning while
   excluding its subdirectories. Regression tests cover both the scanner and the
   committed Action bundle.
+- `npm run check` failed on a fresh Windows clone before anything had been
+  edited. Git for Windows checks files out with CRLF by default and Prettier
+  rejects CRLF; CI never saw it because the format check runs on Linux. A
+  `.gitattributes` now checks text out with LF everywhere. Scan results never
+  depended on line endings, and a test now holds every fixture to that on all
+  platforms rather than leaving it to whichever endings a CI runner happened
+  to check out.
+- `tests/integration/rules.test.ts` contained one raw NUL byte, which made
+  `grep`, ripgrep and editor search treat the whole file as binary and skip
+  it, so searching for a rule id did not find that rule's tests. It is written
+  as an escape sequence now; the test input is byte-for-byte the same.
 
 ## [1.0.1] - 2026-08-28
 

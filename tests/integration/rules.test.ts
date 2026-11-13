@@ -489,7 +489,7 @@ describe('hostile input', () => {
       'd.ts': 'const t = `unterminated template ${',
       'e.ts': '/* unterminated block comment',
       'f.ts': '<<<<<<< HEAD\nconst a = 1;\n=======\nconst a = 2;\n>>>>>>> other',
-      'g.ts': ' not-really-binary',
+      'g.ts': '\u0000not-really-binary',
     });
     try {
       const result = await scanDirectory(dir);

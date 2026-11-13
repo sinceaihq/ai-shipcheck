@@ -1,3 +1,5 @@
+import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createDefaultRegistry } from '../../src/rules/index.js';
@@ -115,11 +117,66 @@ describe('vulnerable fixtures', () => {
   });
 });
 
+/**
+ * A Windows checkout with git's default settings has CRLF line endings, and a
+ * project scanned there must get the report it would get anywhere else: the
+ * same findings, on the same lines, quoting the same text.
+ *
+ * The repository is checked out with LF everywhere (see .gitattributes), so
+ * nothing else in the suite exercises CRLF. This does, on every platform.
+ */
+describe('line endings', () => {
+  async function copyWithLineEnding(from: string, to: string, eol: string): Promise<void> {
+    await fs.mkdir(to, { recursive: true });
+    for (const entry of await fs.readdir(from, { withFileTypes: true })) {
+      const source = path.join(from, entry.name);
+      const target = path.join(to, entry.name);
+      if (entry.isDirectory()) {
+        await copyWithLineEnding(source, target, eol);
+      } else {
+        const text = await fs.readFile(source, 'utf8');
+        await fs.writeFile(target, text.replace(/\r\n/g, '\n').replace(/\n/g, eol));
+      }
+    }
+  }
+
+  function describeFindings(result: ScanResult): string[] {
+    return result.findings
+      .map((f) => {
+        const at = f.evidence[0];
+        return `${f.ruleId} ${f.severity} ${at?.file}:${at?.line}:${at?.column} ${at?.snippet}`;
+      })
+      .sort();
+  }
+
+  it.each([...VULNERABLE_FIXTURES, ...SECURE_FIXTURES])(
+    'reports %s identically with LF and CRLF',
+    async (name) => {
+      const results: ScanResult[] = [];
+      for (const eol of ['\n', '\r\n']) {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'shipcheck-eol-'));
+        try {
+          await copyWithLineEnding(path.join(FIXTURES, name), dir, eol);
+          results.push(await scanDirectory(dir));
+        } finally {
+          await fs.rm(dir, { recursive: true, force: true });
+        }
+      }
+      const [lf, crlf] = results as [ScanResult, ScanResult];
+      expect(describeFindings(crlf)).toEqual(describeFindings(lf));
+      expect(crlf.score).toBe(lf.score);
+      expect(crlf.verdict).toBe(lf.verdict);
+      // The comparison is only worth something if the scan found the files.
+      expect(lf.stats.filesScanned).toBeGreaterThan(0);
+      expect(crlf.stats.filesScanned).toBe(lf.stats.filesScanned);
+    },
+  );
+});
+
 describe('rule catalogue integrity', () => {
   const rules = createDefaultRegistry().all();
 
   it('has a documentation page for every rule', async () => {
-    const fs = await import('node:fs/promises');
     const docs = await fs.readdir(path.join(FIXTURES, '..', 'docs', 'rules'));
     for (const rule of rules) {
       expect(docs, rule.meta.id).toContain(`${rule.meta.id.replace('/', '__')}.md`);
